@@ -1,0 +1,70 @@
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "cuttle-patterns"
+version = "0.0.0"
+description = "Scripts for analyzing cuttlefish patterns"
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Matt Whiteaway" },
+]
+keywords = ["machine learning", "computer_vision", "behavior_analysis"]
+
+dependencies = [
+    "numpy (>=2.0.0)",
+    "opencv-python-headless",
+    "pandas (>=2.2.2)",
+    "pillow",
+    "scikit-learn (>=1.5.0)",
+]
+
+[project.urls]
+repository = "https://github.com/themattinthehatt/cuttle-patterns"
+
+
+# project.dependencies are used for metadata when building the project, tool.poetry.dependencies is only used to enrich
+# project.dependencies for locking
+[tool.poetry.dependencies]
+python = ">=3.12,<3.13"
+
+# [tool.poetry.scripts]
+# litpose = "lightning_pose.cli.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 99
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "docs",
+    "scripts",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (undefined names, unused imports/variables)
+    "I",   # isort
+    "UP",  # pyupgrade (modernize syntax: Tuple->tuple, Union->|, etc.)
+    "B",   # flake8-bugbear (real bugs: mutable defaults, broad excepts, etc.)
+    # "N",   # pep8-naming
+]
+ignore = [
+    "B006",  # mutable default arguments are used intentionally in some places
+    "E203",  # whitespace before ':' conflicts with black-style slice formatting
+    "F722",  # jaxtyping dim strings (e.g. "batch channels") are not Python expressions
+    "F821",  # undefined names in __all__ are flagged incorrectly for re-exports
+]
