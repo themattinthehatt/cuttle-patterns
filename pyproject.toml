@@ -15,10 +15,12 @@ authors = [
 keywords = ["machine learning", "computer_vision", "behavior_analysis"]
 
 dependencies = [
+    "beast-backbones",
     "numpy (>=2.0.0)",
     "opencv-python-headless",
     "pandas (>=2.2.2)",
     "pillow",
+    "pyyaml",
     "scikit-learn (>=1.5.0)",
 ]
 
