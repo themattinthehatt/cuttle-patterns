@@ -30,7 +30,7 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ffmpeg
 
-      - name: Install dependencies (no DALI)
+      - name: Install dependencies
         run: |
           pip install -e ".[dev]"
 
