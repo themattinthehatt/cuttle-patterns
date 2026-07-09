@@ -18,13 +18,15 @@ pip install -e ".[dev]"
 ```
 
 Each machine needs a local config file at `~/.cuttle-patterns/config.yaml` pointing to
-where data and results live, e.g.:
+where data and results live. Create/update it with:
 
-```yaml
-data_dir: /media/mattw/poseinterface/cuttle
-results_dir: /home/mattw/cuttle-patterns-results
+```bash
+cuttle setup
 ```
 
-## License
+which prompts for `data_dir` and `results_dir`, e.g.:
 
-MIT
+```yaml
+data_dir: /path/to/cuttle/data
+results_dir: /path/to/cuttle/results
+```

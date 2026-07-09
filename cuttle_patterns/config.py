@@ -61,3 +61,21 @@ def load_config(config_path: Path | None = None) -> Config:
         data_dir=Path(raw['data_dir']).expanduser(),
         results_dir=Path(raw['results_dir']).expanduser(),
     )
+
+
+def save_config(config: Config, config_path: Path | None = None) -> None:
+    """Write configuration to a yaml file, creating parent directories as needed.
+
+    Args:
+        config: configuration to write.
+        config_path: path to write to. Defaults to `DEFAULT_CONFIG_PATH`.
+    """
+    path = config_path if config_path is not None else DEFAULT_CONFIG_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    raw = {
+        'data_dir': str(config.data_dir),
+        'results_dir': str(config.results_dir),
+    }
+    with path.open('w') as f:
+        yaml.safe_dump(raw, f)

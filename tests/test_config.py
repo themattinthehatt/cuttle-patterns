@@ -3,8 +3,9 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
-from cuttle_patterns.config import load_config
+from cuttle_patterns.config import Config, load_config, save_config
 
 
 class TestLoadConfig:
@@ -50,3 +51,42 @@ class TestLoadConfig:
         # Act & Assert
         with pytest.raises(ValueError, match='missing required keys'):
             load_config(config_path)
+
+
+class TestSaveConfig:
+    """Test the function save_config."""
+
+    def test_save_config_success(self, tmp_path: Path):
+        # Arrange
+        config_path = tmp_path / 'config.yaml'
+        config = Config(data_dir=Path('/data'), results_dir=Path('/results'))
+
+        # Act
+        save_config(config, config_path)
+
+        # Assert
+        raw = yaml.safe_load(config_path.read_text())
+        assert raw == {'data_dir': '/data', 'results_dir': '/results'}
+
+    def test_save_config_creates_parent_dirs(self, tmp_path: Path):
+        # Arrange
+        config_path = tmp_path / 'nested' / 'dir' / 'config.yaml'
+        config = Config(data_dir=Path('/data'), results_dir=Path('/results'))
+
+        # Act
+        save_config(config, config_path)
+
+        # Assert
+        assert config_path.exists()
+
+    def test_save_config_round_trips_with_load_config(self, tmp_path: Path):
+        # Arrange
+        config_path = tmp_path / 'config.yaml'
+        config = Config(data_dir=Path('/data'), results_dir=Path('/results'))
+
+        # Act
+        save_config(config, config_path)
+        loaded = load_config(config_path)
+
+        # Assert
+        assert loaded == config
