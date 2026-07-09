@@ -21,44 +21,67 @@ between Phase 2 (alignment quality) and Phase 6 (does the clustering look sane).
 
 ---
 
-## Phase 0: Infrastructure setup
+## Phase 0: Infrastructure setup — done
 
 **Goal:** every machine that runs this code (all Linux) can find data and write results
 without hardcoded paths.
 
 - Per-machine config file at `~/.cuttle-patterns/config.yaml`, e.g.:
   ```yaml
-  data_dir: /media/mattw/poseinterface/cuttle
-  results_dir: /home/mattw/cuttle-patterns-results
+  data_dir: /media/mattw/poseinterface/cuttle/data
+  results_dir: /media/mattw/poseinterface/cuttle/results
   ```
-- A config-loading module in `cuttle_patterns` that reads this file (clear error if
-  missing, pointing to where to create it).
-- `beast-backbones` added to `pyproject.toml` dependencies.
+- `cuttle_patterns/config.py` provides `load_config()`, reading and validating that file
+  (raises `FileNotFoundError`/`ValueError` with actionable messages if the file is
+  missing or missing required keys). Tested in `tests/test_config.py`.
+- `beast-backbones` and `pyyaml` added to `pyproject.toml` dependencies.
 - No data or large artifacts committed to git; everything lives under `data_dir` /
   `results_dir`.
+- Top-level `README.md` with setup instructions (conda env + `pip install -e ".[dev]"`)
+  and links to these docs.
+- CI: `.github/workflows/tests.yml` (CPU tests via `pytest -m "not gpu"`) and
+  `.github/workflows/lint.yml` (ruff), reviewed and simplified — lint no longer installs
+  the project's runtime dependencies (torch included), since ruff only needs to be
+  installed itself to check the source tree.
 
-**Open questions:**
+**Open questions (deferred, not blocking):**
 - Exact set of keys the config needs beyond `data_dir` / `results_dir` (e.g. a separate
-  fast local scratch dir for training, if `data_dir` is a slower shared mount).
+  fast local scratch dir for training, if `data_dir` is a slower shared mount) — revisit
+  once Phase 4 makes IO speed on `data_dir` a concrete concern.
 
 ---
 
-## Phase 1: Data ingestion & inventory
+## Phase 1: Data ingestion & inventory — done (for the first delivered session)
 
 **Goal:** know exactly what we have once the collaborators' videos land in `data_dir`.
 
-- Define the expected raw directory/file naming convention (per session, per fish) —
-  TBD until we see the real delivered structure.
-- Build a manifest (session id, fish id, video path, frame count, fps, resolution) as a
-  CSV/Parquet file under `results_dir`.
-- Sanity checks: frame-count consistency with collaborators' reported ~72,000, resolution
-  consistency across sessions, corrupt/truncated video detection.
+- Raw file naming convention (confirmed): `data_dir/session-{session_id}_cuttle-
+  {fish_id}.mp4` with an accompanying `session-{session_id}_cuttle-{fish_id}.txt` listing
+  blank-frame indices (one integer per line, no header). First delivered example: session
+  1, fish 1 — 512x512, 24 fps, 44,400 frames, 18,068 flagged blank.
+- `cuttle_patterns/ingest.py` builds the manifest: `find_raw_videos` /
+  `read_video_info` (via OpenCV) / `read_blank_frame_indices` / `build_manifest`, one row
+  per video with `session_id`, `fish_id`, `video_path`, `blank_frames_path`, `n_frames`,
+  `n_blank_frames`, `fps`, `width`, `height`. Written to
+  `results_dir/manifests/ingest.parquet`.
+- Exposed as `cuttle ingest` via the CLI (see below) rather than a bare script.
+- Sanity check implemented: warns (does not fail) if a blank-frame index falls outside
+  the video's frame range, or if a video's `.txt` file is missing.
+
+**CLI:** `cuttle_patterns/cli/` mirrors the structure of a previous project
+(github.com/themattinthehatt/crittercam): `main.py` is the entry point, registered as the
+`cuttle` console script; it auto-discovers `cmd_*.py` modules in the same directory and
+dispatches to whichever one's `register()` added the matching subparser. Each
+`cmd_<name>.py` owns its own argparse wiring and a thin `cmd_<name>(args)` handler that
+calls into the real logic living in a top-level module (e.g. `cmd_ingest.py` calls
+`cuttle_patterns.ingest.build_manifest`). Future phases' CLI-exposed steps (align,
+extract-frames, train, embed, cluster, serve, ...) should follow the same pattern — see
+[DECISIONS.md](DECISIONS.md).
 
 **Open questions:**
-- Is the "black background" purely the composited mask, or is an alpha/mask channel or
-  separate mask file also provided? This affects how we recover the foreground mask in
-  Phase 2 (currently assuming: threshold near-black pixels).
-- Actual fps — needed to reason about motion between frames for Phase 3 sampling.
+- Only one session/fish pair has been delivered so far (72 total expected); revisit the
+  "~44,000 frames per session" assumption and cross-session resolution/fps consistency
+  once more sessions land.
 
 ---
 
@@ -67,8 +90,13 @@ without hardcoded paths.
 **Goal:** produce, for every input video, a derived video where the cuttlefish's body is
 consistently positioned and oriented, so pattern — not pose — dominates pixel variation.
 
+We only have the mp4 itself to work with — no separate mask file, and standard H.264 mp4
+(confirmed via `ffprobe` on the delivered file) has no alpha channel, so there's no
+transparency/mask data to recover from the container. The "masked" background is just
+black RGB pixels baked into the frame.
+
 Steps per frame:
-1. Recover the foreground mask (near-black background thresholding, or provided mask).
+1. Recover the foreground mask via near-black RGB thresholding on the decoded frame.
 2. Estimate the body's principal axis via PCA/ellipse fit on the mask (first-pass
    approach — see [DECISIONS.md](DECISIONS.md)).
 3. Disambiguate head vs. tail along that axis (PCA gives an axis, not a direction).

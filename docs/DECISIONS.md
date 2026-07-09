@@ -6,6 +6,28 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## CLI structure: auto-discovered `cmd_*.py` modules, mirroring `crittercam`
+
+**Date:** 2026-07-09
+**Status:** decided
+
+**Decision:** Expose pipeline steps as subcommands of a single `cuttle` console script
+(`cuttle ingest`, and future `cuttle align`, `cuttle extract-frames`, etc.), implemented
+under `cuttle_patterns/cli/`: `main.py` builds the root argparse parser and auto-
+discovers every `cmd_*.py` file in the same directory via `Path.glob('cmd_*.py')`,
+importing each and calling its `register(subparsers)`; each `cmd_<name>.py` owns its
+argparse wiring (`register`) and a thin `cmd_<name>(args)` handler that delegates to real
+logic in a top-level module (e.g. `cmd_ingest.py` → `cuttle_patterns.ingest.build_manifest`).
+
+**Why:** Matches an existing project (github.com/themattinthehatt/crittercam) the user
+already has conventions and muscle memory for. Adding a new pipeline step is just adding
+one `cmd_<name>.py` file — no central registry to edit, `main.py` never changes.
+
+**Alternatives considered:** none — explicitly requested to match the prior project's
+pattern.
+
+---
+
 ## Egocentric alignment via derived videos, not learned invariance
 
 **Date:** 2026-07-08
@@ -106,9 +128,11 @@ code's perspective, so there's no need for cluster-orchestration complexity.
 **Date:** 2026-07-08
 **Status:** decided
 
-**Decision:** Raw data will live at `/media/mattw/poseinterface/cuttle` (not yet
-populated as of this writing). Since code will run on multiple (always Linux) machines
-with potentially different mount points, each machine gets a local config file at
+**Decision:** Raw data lives at `/media/mattw/poseinterface/cuttle/data` (populated as of
+2026-07-09 with the first session), with a separate sibling `/media/mattw/poseinterface/
+cuttle/results` for everything this codebase generates (manifests, embeddings,
+checkpoints). Since code will run on multiple (always Linux) machines with potentially
+different mount points, each machine gets a local config file at
 `~/.cuttle-patterns/config.yaml` specifying `data_dir` and `results_dir`, loaded by a
 config module rather than hardcoding paths anywhere in the codebase.
 
