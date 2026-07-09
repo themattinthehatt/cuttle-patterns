@@ -21,7 +21,7 @@ between Phase 2 (alignment quality) and Phase 6 (does the clustering look sane).
 
 ---
 
-## Phase 0: Infrastructure setup
+## Phase 0: Infrastructure setup — done
 
 **Goal:** every machine that runs this code (all Linux) can find data and write results
 without hardcoded paths.
@@ -31,15 +31,23 @@ without hardcoded paths.
   data_dir: /media/mattw/poseinterface/cuttle
   results_dir: /home/mattw/cuttle-patterns-results
   ```
-- A config-loading module in `cuttle_patterns` that reads this file (clear error if
-  missing, pointing to where to create it).
-- `beast-backbones` added to `pyproject.toml` dependencies.
+- `cuttle_patterns/config.py` provides `load_config()`, reading and validating that file
+  (raises `FileNotFoundError`/`ValueError` with actionable messages if the file is
+  missing or missing required keys). Tested in `tests/test_config.py`.
+- `beast-backbones` and `pyyaml` added to `pyproject.toml` dependencies.
 - No data or large artifacts committed to git; everything lives under `data_dir` /
   `results_dir`.
+- Top-level `README.md` with setup instructions (conda env + `pip install -e ".[dev]"`)
+  and links to these docs.
+- CI: `.github/workflows/tests.yml` (CPU tests via `pytest -m "not gpu"`) and
+  `.github/workflows/lint.yml` (ruff), reviewed and simplified — lint no longer installs
+  the project's runtime dependencies (torch included), since ruff only needs to be
+  installed itself to check the source tree.
 
-**Open questions:**
+**Open questions (deferred, not blocking):**
 - Exact set of keys the config needs beyond `data_dir` / `results_dir` (e.g. a separate
-  fast local scratch dir for training, if `data_dir` is a slower shared mount).
+  fast local scratch dir for training, if `data_dir` is a slower shared mount) — revisit
+  once Phase 4 makes IO speed on `data_dir` a concrete concern.
 
 ---
 
