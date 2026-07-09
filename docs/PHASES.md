@@ -31,9 +31,13 @@ without hardcoded paths.
   data_dir: /media/mattw/poseinterface/cuttle/data
   results_dir: /media/mattw/poseinterface/cuttle/results
   ```
-- `cuttle_patterns/config.py` provides `load_config()`, reading and validating that file
-  (raises `FileNotFoundError`/`ValueError` with actionable messages if the file is
-  missing or missing required keys). Tested in `tests/test_config.py`.
+- `cuttle_patterns/config.py` provides `load_config()` / `save_config()`, reading and
+  writing that file (`load_config` raises `FileNotFoundError`/`ValueError` with
+  actionable messages if the file is missing or missing required keys). Tested in
+  `tests/test_config.py`.
+- `cuttle setup` (via `cmd_setup.py`) interactively prompts for `data_dir`/`results_dir`
+  and writes/updates the config file, confirming before overwriting an existing one —
+  the documented way to create this file rather than hand-editing yaml.
 - `beast-backbones` and `pyyaml` added to `pyproject.toml` dependencies.
 - No data or large artifacts committed to git; everything lives under `data_dir` /
   `results_dir`.
