@@ -6,6 +6,42 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Body mask recovery: background-complement, not intensity thresholding
+
+**Date:** 2026-07-10
+**Status:** decided
+
+**Decision:** Recover each frame's body mask by labeling connected components of near-
+black (`<= thresh`, default 0) pixels, keeping only the single largest as the true
+background, and treating everything else as body — rather than a plain intensity
+threshold plus largest-foreground-component selection.
+
+**Why:** The background is confirmed pure black (pixel value 0, verified via sampled
+corner pixels, no compression noise). But the cuttlefish's own dark chromatophore
+patterning also renders at or near 0, so pixel intensity alone can't distinguish body
+from background. A naive threshold (tried at both 10 and 1) left the mask riddled with
+holes wherever the animal displayed dark patterning, which shrank and mis-centered the
+Phase 2a inscribed rectangle (see [PHASES.md](PHASES.md) Phase 2a). Splitting on
+connected components of near-black pixels instead correctly reclassifies isolated dark
+patches on the body as foreground, since they aren't connected to the true background
+blob, regardless of whether they're fully enclosed.
+
+**Alternatives considered:**
+- `scipy.ndimage.binary_fill_holes` on the thresholded mask — only fixes holes fully
+  enclosed by foreground; missed holes that touch the mask's outer boundary (common near
+  the arm crown).
+- Morphological closing — bridges gaps regardless of shape, but the kernel size needed
+  to close the branchier chromatophore-driven gaps also uniformly rounds off real
+  anatomical concavities (e.g. the notch between the mantle and arm crown).
+- Convex hull of the mask — parameter-free but too permissive: it also fills real empty
+  space between splayed arms, risking the rectangle landing in open water rather than on
+  the animal.
+
+**Trade-off / known risk:** assumes a single dominant background region per frame (holds
+as long as the body doesn't split the frame into disconnected background pockets).
+
+---
+
 ## CLI structure: auto-discovered `cmd_*.py` modules, mirroring `crittercam`
 
 **Date:** 2026-07-09
@@ -52,8 +88,8 @@ solvable geometrically.
 
 ## Orientation estimation: PCA/ellipse fit first, pose keypoints if needed
 
-**Date:** 2026-07-08
-**Status:** decided (first pass); may revisit
+**Date:** 2026-07-08 (arm-bias confirmed on real data 2026-07-10)
+**Status:** decided (first pass); arm-bias confirmed — Phase 2b prioritized
 
 **Decision:** Estimate each frame's body axis via PCA/ellipse fit on the segmentation
 mask, rather than starting with a trained pose model.
@@ -62,14 +98,17 @@ mask, rather than starting with a trained pose model.
 (Phase 2). Good enough to validate the overall pipeline end to end.
 
 **Trade-off / known risk:** PCA gives an axis, not a direction — head/tail must be
-disambiguated separately (e.g. via mass asymmetry between mantle and arm-crown, plus
-temporal smoothing). The ellipse fit may also be noisy when arm posture changes the
-body's effective shape.
+disambiguated separately. Confirmed on real data (session-01 sample, see
+[PHASES.md](PHASES.md) Phase 2a): once the mask-recovery fix above stopped fragmenting
+the mask with dark-patterning holes, arm posture became the dominant failure mode — PCA
+frequently finds its largest rectangle straddling the arm crown rather than centered on
+the mantle, since splayed arms are part of the same connected component as the mantle.
 
-**Fallback:** if orientation noise measurably hurts downstream clustering, switch to
-pose keypoints (DeepLabCut/SLEAP) tracking e.g. mantle tip and arm-crown center for a
-more robust axis. Deferred until we can see how bad the PCA approach actually is on
-real data.
+**Fallback:** switch to pose keypoints for a more robust, occlusion-tolerant axis.
+Scoped in [PHASES.md](PHASES.md) Phase 2b: four keypoints (tail tip, head/body
+transition, two lateral mantle-width points) fit a simple ellipse approximating the
+mantle, giving a signed head-right axis and excluding arms by construction. Prioritized
+now that the PCA failure mode is confirmed on real data rather than hypothetical.
 
 ---
 
