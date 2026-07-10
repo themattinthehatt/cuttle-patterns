@@ -41,8 +41,11 @@ class TestCreateOverlayVideo:
         df.to_csv(csv_path, index=False)
         output_path = tmp_path / 'out' / 'video_overlay.mp4'
 
-        # Act
-        result_path = create_overlay_video(video_path, csv_path, output_path)
+        # Act: pin crf to near-lossless so this assertion isn't coupled to whatever the
+        # module's default compression level happens to be (the default, crf=28, is
+        # deliberately lossy for file size and its exact pixel drift is also sensitive
+        # to the local libx264 build, which caused this test to flake across machines)
+        result_path = create_overlay_video(video_path, csv_path, output_path, crf=0)
 
         # Assert
         assert result_path == output_path
@@ -55,7 +58,7 @@ class TestCreateOverlayVideo:
         cap.release()
 
         assert ok0 and ok1
-        # left edge of the square, drawn on both frames (loose tolerance: mp4
-        # compression perturbs exact pixel values slightly)
+        # left edge of the square, drawn on both frames (loose tolerance: yuv420p
+        # chroma subsampling still perturbs exact pixel values slightly even losslessly)
         assert np.allclose(frame0[10, 5], DETECTED_COLOR_BGR, atol=15)
         assert np.allclose(frame1[10, 5], INTERPOLATED_COLOR_BGR, atol=15)
