@@ -99,26 +99,96 @@ We only have the mp4 itself to work with — no separate mask file, and standard
 transparency/mask data to recover from the container. The "masked" background is just
 black RGB pixels baked into the frame.
 
-Steps per frame:
-1. Recover the foreground mask via near-black RGB thresholding on the decoded frame.
-2. Estimate the body's principal axis via PCA/ellipse fit on the mask (first-pass
-   approach — see [DECISIONS.md](DECISIONS.md)).
-3. Disambiguate head vs. tail along that axis (PCA gives an axis, not a direction).
-4. Inscribe a rectangle in the body aligned to the principal axis; rotate/crop/warp to a
-   fixed canonical size and orientation.
-5. Write the aligned crop to a derived video, mirroring the input session/fish structure
-   under `data_dir` (or a `derived/aligned/` subtree).
+The rectangle is fixed at a 2:1 aspect ratio (long axis along the body) to keep box shape
+from adding its own noise on top of body-position/orientation noise.
 
-**Open questions / risks:**
-- Head/tail disambiguation: PCA alone is 180°-ambiguous. Likely needs a rule (e.g.
-  mantle vs. arm-crown mass asymmetry) plus temporal smoothing to avoid frame-to-frame
-  flips. Flagged in [DECISIONS.md](DECISIONS.md) as the first thing to sanity-check
-  visually once real data arrives.
-- Ellipse fit may be noisy when arms are splayed vs. contracted (body shape isn't a
-  fixed ellipse). If this proves too noisy, fall back to pose keypoints (DeepLabCut/
-  SLEAP) for a more robust axis — deferred until we see how bad it is.
-- Canonical crop size/aspect ratio: needs to accommodate the most extended arm posture
-  across the dataset without excessive padding for contracted postures.
+### Phase 2a: rectangle inscription via classical CV — validated on real data
+
+Implemented in `cuttle_patterns/preprocessing/inscribe.py`; visualized via
+`scratch/run_inscribe_v1.py`, which samples a reproducible random set of frames (fixed
+seed, known-blank frames excluded) from a raw video and writes annotated frames to
+`{results_dir}/inscribe/{version}/` — rerun anytime to sanity-check changes against real
+data.
+
+Per frame:
+1. Recover the body mask as the complement of the frame's largest connected background
+   blob (see "mask recovery" below — this is not simple intensity thresholding).
+2. Estimate the body's principal axis via PCA on the mask's foreground pixel coordinates
+   (centroid + major-axis angle) — first-pass approach, see [DECISIONS.md](DECISIONS.md).
+3. Rotate the mask upright (major axis horizontal) via an affine warp, keeping the
+   inverse transform to map results back to the original frame.
+4. Seed a candidate rectangle center from the distance-transform peak (center of the
+   largest inscribed circle) in the rotated mask.
+5. Grow a fixed 2:1 rectangle from that seed: binary-search the largest scale that stays
+   fully inside the mask (checked in O(1) via an integral image / summed-area table), and
+   coordinate-ascent-refine the center, alternating the two until convergence.
+6. Map the rectangle's corners back to the original frame via the inverse rotation.
+
+**Mask recovery (step 1), iterated against real data:**
+- v1 thresholded at intensity 10. Worked, but produced small/off-center boxes whenever
+  the animal displayed dark skin patterning — chromatophore blotches near black in value
+  were misclassified as background, riddling the mask with holes the rectangle-growing
+  step couldn't cross.
+- v2 tightened the threshold to intensity 1 (`gray > 0`), after confirming the background
+  is pure 0 (sampled corner pixels, no compression noise) while most "hole" pixels inside
+  the body were nonzero (1-9). Recovered most holes for free, but left small islands of
+  body pixels that render at literal 0.
+- v3 (current) replaced intensity thresholding with a background-complement approach:
+  label connected components of near-black (`<= thresh`, default 0) pixels, keep only the
+  single largest as the true background, and treat everything else — including isolated
+  zero-valued patches on the animal, whether or not they're topologically enclosed — as
+  body. Parameter-free relative to hole-filling/morphological alternatives; assumes one
+  dominant background region per frame (holds as long as the body doesn't split the frame
+  into disconnected background pockets).
+
+**Known limitations, deliberately deferred to Phase 2b:**
+- Head/tail direction is unresolved — PCA gives an axis, not a sign, so the rectangle is
+  orientation-aligned but not yet canonically "head right."
+- Arm posture bias is now the **dominant** failure mode: with the mask no longer
+  fragmented by dark-patterning holes, PCA is free to find the largest rectangle anywhere
+  across the full mantle+arm-crown blob, and it frequently lands straddling the arm crown
+  rather than centered on the mantle. Confirmed visually across the 20-frame sample.
+- Occlusion (one fish crossing in front of the other, masking the far fish's pixels to
+  black) is likely improved as a side effect of the v3 mask recovery — an occluding blob
+  fully inside the target fish's silhouette forms its own small background component and
+  gets absorbed into the body, the same mechanism that fixes dark-patterning holes — but
+  not yet verified against a real occlusion frame. Still unresolved if the occluding blob
+  touches the image edge and merges with the true background component. Accepted as fine
+  either way — the rectangle is allowed to contain occluded (black) pixels; downstream
+  pattern analysis handling of those pixels is out of scope for this phase.
+
+Next: prioritize Phase 2b, since arm-bias is now the clear dominant failure mode observed
+on real data.
+
+### Phase 2b: pose-informed refinement — planned, not started
+
+- Obtain a lightweight pose model (likely via `beast-backbones` infra) predicting four
+  keypoints per frame: tail tip, head/body (mantle-neck) transition point, and two
+  lateral mantle-width points (one per side, roughly halfway between tail and
+  transition). The transition point is anatomically fixed regardless of arm posture,
+  unlike an arm/head-tip keypoint, which is why it's the one that matters for excluding
+  arms from the mantle estimate.
+- Use the tail → transition vector as a signed axis to canonically orient the body head-
+  right, resolving Phase 2a's direction ambiguity.
+- Fit a simple ellipse from the four points (semi-major axis = half the tail-transition
+  distance, semi-minor axis = the measured half-width) as an occlusion-robust
+  approximation of the mantle silhouette. This replaces raw-mask PCA for both orientation
+  and rectangle containment, and excludes head/arms by construction — no separate mask
+  cut needed. Because it's derived from keypoints rather than pixel color, it degrades
+  gracefully under the same occlusion that breaks Phase 2a's pixel-based mask.
+- Known simplification: a symmetric ellipse won't capture the mantle's true taper
+  (narrower at the tail, wider near the neck). Revisit with additional width keypoints
+  only if this proves too lossy for the inscribed rectangle in practice.
+- Not needed to unblock Phase 2a; only pursue once Phase 2a's limitations are visually
+  confirmed to matter enough to justify building/training a pose model.
+
+### Remaining Phase 2 work (after 2a is validated, and 2b if needed)
+
+- Final rotate/crop/warp of each frame to a fixed canonical size using the inscribed
+  rectangle, and writing derived videos mirroring the input session/fish structure under
+  `data_dir` (or a `derived/aligned/` subtree).
+- Canonical crop size needs to accommodate the range of inscribed-rectangle sizes across
+  the dataset without excessive padding for smaller ones.
 
 ---
 
