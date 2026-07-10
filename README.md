@@ -76,12 +76,13 @@ It runs in one of two modes, chosen automatically per video:
 
 Either mode can still leave the rectangle jittering frame-to-frame during rapid body
 motion (fin beats in particular); the corner trajectory is smoothed to damp this, via
-either a centered rolling median (`--smoothing-window`, frames, default 9; 1 disables
-smoothing) or a Gaussian filter (`--smoothing-sigma`, standard deviation in frames,
-default 2.0 if given with no value) — the two are mutually exclusive. The Gaussian tends
-to track continuous, quasi-periodic jitter (e.g. fin beats) more smoothly since it blends
-the whole window rather than snapping to one observed value; the median is more robust to
-an occasional single-frame garbage detection, since it rejects rather than blends it in.
+either a Gaussian filter (`--smoothing-sigma`, standard deviation in frames, 2.0 if
+given with no value — **the default if neither flag is given**) or a centered rolling
+median (`--smoothing-window`, frames, 9 if given with no value; 1 disables smoothing) —
+the two are mutually exclusive. The Gaussian tracks continuous, quasi-periodic jitter
+(e.g. fin beats) more smoothly since it blends the whole window rather than snapping to
+one observed value; the median is more robust to an occasional single-frame garbage
+detection, since it rejects rather than blends it in.
 
 To process one video at a time (e.g. while iterating on `--thresh`/`--aspect`), use
 `--video-path`, optionally paired with an explicit `--pose-path`:

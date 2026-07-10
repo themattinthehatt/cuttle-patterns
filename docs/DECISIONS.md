@@ -12,12 +12,14 @@ considered instead, and current status. Add new entries at the top. See
 **Status:** decided, implemented
 
 **Decision:** Smooth the final per-frame rectangle corner trajectory with either a
-centered rolling median (`align.smooth_corners`, `--smoothing-window`, default 9 frames,
-1 disables it — the default smoother when neither flag is given) or a Gaussian filter
-(`align.smooth_corners_gaussian`, `--smoothing-sigma`, standard deviation in frames,
-defaults to 2.0 if given with no value), rather than fixing this upstream in mask/pose
-geometry. The two are mutually exclusive — an argparse mutually-exclusive group on the
-CLI, a `ValueError` in `align_video` if both are passed.
+Gaussian filter (`align.smooth_corners_gaussian`, `--smoothing-sigma`, standard deviation
+in frames, 2.0 if given with no value — **the default when neither flag is given**) or a
+centered rolling median (`align.smooth_corners`, `--smoothing-window`, 9 frames if given
+with no value; 1 disables smoothing), rather than fixing this upstream in mask/pose
+geometry. The two CLI flags are symmetric (`nargs='?'` + `const` on both, so either can
+be typed bare for its recommended value or with an explicit number) and mutually
+exclusive — an argparse mutually-exclusive group on the CLI, a `ValueError` in
+`align_video` if both are passed as non-None.
 
 **Why:** QC on session-01/cuttle-01 (1:35-1:40) showed the rectangle jittering
 frame-to-frame — well above baseline — driven by fin-beat oscillation rather than real
@@ -25,13 +27,15 @@ body movement (visually, the box shifted between frames where the body's pose wa
 essentially unchanged). Smoothing the final trajectory (not the pose keypoints, and not
 the mask) is the narrowest fix: the jitter shows up in the sized rectangle regardless of
 orientation source (PCA or pose-informed), so it needs to happen after both paths
-converge — the same place `interpolate_corners` already runs. The median was added
+converge — the same place `interpolate_corners` already runs. The median was implemented
 first as the safer, outlier-robust default (rejects a one- or two-frame glitch outright).
-The Gaussian was added afterward once the median's own output still looked "jumpy" on
-the same clip: since the fin-beat noise is continuous/quasi-periodic rather than sparse
+The Gaussian was added afterward once the median's own output still looked "jumpy" on the
+same clip: since the fin-beat noise is continuous/quasi-periodic rather than sparse
 spikes, blending the whole window (Gaussian) tracks it more smoothly than snapping to one
 observed value (median) at comparable strength — see the measurements in
-[PHASES.md](PHASES.md) (Temporal smoothing).
+[PHASES.md](PHASES.md) (Temporal smoothing). Once the Gaussian's results looked better on
+this clip, the default (what runs when neither flag is given) was switched from the
+median to the Gaussian at σ=2.0.
 
 **Alternatives considered:** smoothing the pose keypoints before orientation/mask-cut —
 rejected, since fin-driven jitter also affects the PCA-only path and the mask-based

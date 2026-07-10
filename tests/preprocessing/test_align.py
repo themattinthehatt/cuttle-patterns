@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from cuttle_patterns.preprocessing.align import (
+    DEFAULT_SMOOTHING_SIGMA,
     align_video,
     compute_corner_trajectory,
     interpolate_corners,
@@ -260,6 +261,39 @@ class TestAlignVideo:
         cap = cv2.VideoCapture(str(video_out_path))
         assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
         cap.release()
+
+    def test_align_video_defaults_to_gaussian_smoothing(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange: neither smoothing flag given
+        video_path = make_custom_video(
+            tmp_path / 'session-01_cuttle-01.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        output_dir = tmp_path / 'out'
+        calls = {}
+
+        def fake_gaussian(corners, sigma):
+            calls['sigma'] = sigma
+            return corners
+
+        def fake_median(corners, window):
+            calls['window'] = window
+            return corners
+
+        monkeypatch.setattr(
+            'cuttle_patterns.preprocessing.align.smooth_corners_gaussian', fake_gaussian,
+        )
+        monkeypatch.setattr('cuttle_patterns.preprocessing.align.smooth_corners', fake_median)
+
+        # Act
+        align_video(video_path, output_dir, canonical_height=20)
+
+        # Assert: gaussian ran with the default sigma, median didn't run at all
+        assert calls == {'sigma': DEFAULT_SMOOTHING_SIGMA}
 
     def test_align_video_smoothing_window_is_wired_through(
         self,

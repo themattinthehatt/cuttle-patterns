@@ -261,15 +261,17 @@ exclusive via `align_video`'s `smoothing_window`/`smoothing_sigma` args (raises
 `ValueError` if both given) and `cuttle inscribe`/`cuttle overlay`'s `--smoothing-window`/
 `--smoothing-sigma` (an argparse mutually-exclusive group):
 
-- `smooth_corners` — centered rolling median, default window 9 frames (1 disables it).
-  The historical default when neither flag is given. Robust to a one- or two-frame
-  outlier (rejects it outright) at the cost of a "steppy" trajectory that doesn't fully
-  flatten continuous jitter.
 - `smooth_corners_gaussian` — Gaussian filter, `--smoothing-sigma` (standard deviation in
-  frames; defaults to 2.0 if the flag is given with no value). Blends the whole window
-  rather than snapping to one observed value, which tracks continuous, quasi-periodic
-  jitter (fin beats) more smoothly than the median at comparable strength, at the cost of
-  blending in rather than rejecting a single genuinely-bad frame.
+  frames; 2.0 if given with no value). **The default when neither smoothing flag is
+  given** — added first as the safer default (median), then switched to Gaussian once
+  visual QC on this same clip showed the median's own output still looked jumpy; blends
+  the whole window rather than snapping to one observed value, which tracks continuous,
+  quasi-periodic jitter (fin beats) more smoothly than the median at comparable strength,
+  at the cost of blending in rather than rejecting a single genuinely-bad frame.
+- `smooth_corners` — centered rolling median, `--smoothing-window` (9 frames if given
+  with no value; 1 disables smoothing). Robust to a one- or two-frame outlier (rejects it
+  outright) at the cost of a "steppy" trajectory that doesn't fully flatten continuous
+  jitter.
 
 Measured on the 1:35-1:40 window (mean/max frame-to-frame center jump): raw ~13px/~53px;
 median (w=9) ~2.6px/~9px; gaussian (σ=1.5, comparable strength to the median) ~2.7px/~8px

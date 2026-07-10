@@ -97,9 +97,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     smoothing_group.add_argument(
         '--smoothing-window',
         type=int,
+        nargs='?',
+        const=DEFAULT_SMOOTHING_WINDOW,
         default=None,
-        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; defaults to '
-        f'{DEFAULT_SMOOTHING_WINDOW} unless --smoothing-sigma is given',
+        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; '
+        f'{DEFAULT_SMOOTHING_WINDOW} if given with no value; mutually exclusive with '
+        f'--smoothing-sigma (the default smoother if neither flag is given)',
     )
     smoothing_group.add_argument(
         '--smoothing-sigma',
@@ -107,8 +110,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         nargs='?',
         const=DEFAULT_SMOOTHING_SIGMA,
         default=None,
-        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; defaults to '
-        f'{DEFAULT_SMOOTHING_SIGMA} if given with no value',
+        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; '
+        f'{DEFAULT_SMOOTHING_SIGMA} if given with no value, and also the default if '
+        f'neither smoothing flag is given',
     )
     parser.set_defaults(handler=cmd_overlay)
 

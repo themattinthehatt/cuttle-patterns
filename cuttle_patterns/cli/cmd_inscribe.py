@@ -89,10 +89,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     smoothing_group.add_argument(
         '--smoothing-window',
         type=int,
+        nargs='?',
+        const=DEFAULT_SMOOTHING_WINDOW,
         default=None,
         help=f'rolling-median window (frames) for smoothing rectangle geometry; 1 '
-        f'disables smoothing; defaults to {DEFAULT_SMOOTHING_WINDOW} unless '
-        f'--smoothing-sigma is given',
+        f'disables smoothing; {DEFAULT_SMOOTHING_WINDOW} if given with no value; '
+        f'mutually exclusive with --smoothing-sigma (the default smoother if neither '
+        f'flag is given)',
     )
     smoothing_group.add_argument(
         '--smoothing-sigma',
@@ -101,8 +104,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         const=DEFAULT_SMOOTHING_SIGMA,
         default=None,
         help=f'gaussian-filter sigma (frames) for smoothing rectangle geometry instead '
-        f'of the rolling median; defaults to {DEFAULT_SMOOTHING_SIGMA} if given with no '
-        f'value',
+        f'of the rolling median; {DEFAULT_SMOOTHING_SIGMA} if given with no value, and '
+        f'also the default if neither smoothing flag is given',
     )
     parser.set_defaults(handler=cmd_inscribe)
 

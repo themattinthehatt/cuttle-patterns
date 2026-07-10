@@ -227,11 +227,10 @@ def align_video(
             the pose-informed Phase 2b rectangle-inscription path instead of Phase 2a's
             PCA-based one.
         smoothing_window: passed through to `smooth_corners`. Mutually exclusive with
-            `smoothing_sigma`; if both are None (the default), falls back to
-            `smooth_corners` with `DEFAULT_SMOOTHING_WINDOW`.
+            `smoothing_sigma`.
         smoothing_sigma: passed through to `smooth_corners_gaussian`. Mutually exclusive
-            with `smoothing_window`; if given, smooths with a Gaussian filter instead of
-            the rolling median.
+            with `smoothing_window`; if both are None (the default), falls back to
+            `smooth_corners_gaussian` with `DEFAULT_SMOOTHING_SIGMA`.
 
     Returns:
         (video_out_path, csv_out_path).
@@ -261,11 +260,11 @@ def align_video(
     if is_interpolated_pose is not None:
         is_interpolated = is_interpolated | is_interpolated_pose
 
-    if smoothing_sigma is not None:
-        corners = smooth_corners_gaussian(corners, sigma=smoothing_sigma)
+    if smoothing_window is not None:
+        corners = smooth_corners(corners, window=smoothing_window)
     else:
-        window = smoothing_window if smoothing_window is not None else DEFAULT_SMOOTHING_WINDOW
-        corners = smooth_corners(corners, window=window)
+        sigma = smoothing_sigma if smoothing_sigma is not None else DEFAULT_SMOOTHING_SIGMA
+        corners = smooth_corners_gaussian(corners, sigma=sigma)
 
     canonical_size = (round(aspect * canonical_height), canonical_height)
 
