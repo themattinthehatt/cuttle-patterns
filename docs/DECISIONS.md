@@ -6,6 +6,134 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Rectangle-trajectory smoothing: median and Gaussian, mutually exclusive
+
+**Date:** 2026-07-10
+**Status:** decided, implemented
+
+**Decision:** Smooth the final per-frame rectangle corner trajectory with either a
+Gaussian filter (`align.smooth_corners_gaussian`, `--smoothing-sigma`, standard deviation
+in frames, 2.0 if given with no value — **the default when neither flag is given**) or a
+centered rolling median (`align.smooth_corners`, `--smoothing-window`, 9 frames if given
+with no value; 1 disables smoothing), rather than fixing this upstream in mask/pose
+geometry. The two CLI flags are symmetric (`nargs='?'` + `const` on both, so either can
+be typed bare for its recommended value or with an explicit number) and mutually
+exclusive — an argparse mutually-exclusive group on the CLI, a `ValueError` in
+`align_video` if both are passed as non-None.
+
+**Why:** QC on session-01/cuttle-01 (1:35-1:40) showed the rectangle jittering
+frame-to-frame — well above baseline — driven by fin-beat oscillation rather than real
+body movement (visually, the box shifted between frames where the body's pose was
+essentially unchanged). Smoothing the final trajectory (not the pose keypoints, and not
+the mask) is the narrowest fix: the jitter shows up in the sized rectangle regardless of
+orientation source (PCA or pose-informed), so it needs to happen after both paths
+converge — the same place `interpolate_corners` already runs. The median was implemented
+first as the safer, outlier-robust default (rejects a one- or two-frame glitch outright).
+The Gaussian was added afterward once the median's own output still looked "jumpy" on the
+same clip: since the fin-beat noise is continuous/quasi-periodic rather than sparse
+spikes, blending the whole window (Gaussian) tracks it more smoothly than snapping to one
+observed value (median) at comparable strength — see the measurements in
+[PHASES.md](PHASES.md) (Temporal smoothing). Once the Gaussian's results looked better on
+this clip, the default (what runs when neither flag is given) was switched from the
+median to the Gaussian at σ=2.0.
+
+**Alternatives considered:** smoothing the pose keypoints before orientation/mask-cut —
+rejected, since fin-driven jitter also affects the PCA-only path and the mask-based
+sizing step, not just pose; picking one smoother instead of offering both — rejected,
+since the median's outlier robustness and the Gaussian's smoother continuous tracking are
+genuinely different trade-offs and it's cheap to expose both.
+
+**Trade-off / known risk:** both the 9-frame median window and the 2.0 Gaussian sigma
+were tuned by eye against the one noisy clip checked so far; a genuinely fast real
+movement (e.g. an escape jet) could get smoothed more than intended by either — revisit
+if that shows up elsewhere in the dataset. The Gaussian is less robust to a single
+genuinely-bad frame than the median, since it blends the outlier in rather than
+rejecting it.
+
+---
+
+## Phase 2b pose plumbing: real pose-CSV format, --pose-dir/--pose-path, 0.9 likelihood
+
+**Date:** 2026-07-10
+**Status:** decided, implemented
+
+**Decision:** Consume the pose CSV a pose-estimation model actually writes — the standard
+multi-header format (three header rows: scorer, bodyparts, coords; one data row per
+frame) — rather than inventing a simplified `frame_idx, tail_x, tail_y, neck_x, neck_y`
+schema as originally sketched in `docs/PHASES.md` Phase 2b. `pose.load_pose_predictions`
+selects columns by the `bodyparts` level only (ignoring `scorer`, a model/run-specific
+label), so it works regardless of which pose model produced the file. Interpolate
+(flat-extrapolate at the edges, same convention as `align.interpolate_corners`) over any
+frame where either keypoint's likelihood is below 0.9. `interpolate_pose` trusts the pose
+CSV has exactly one row per video frame (holds for the one real file seen so far) instead
+of taking an explicit frame count to reconcile against, which also lets `align_video` skip
+opening the video up front just to learn its frame count. `cuttle inscribe`/`cuttle
+overlay` gain `--pose-dir` (default
+`results_dir/pose`, looked up per video as `{video_name}.csv`, mirroring the existing
+`--output-dir` pattern) and `--pose-path` (single-video override, mirroring
+`--video-path`); a video with no matching pose file falls back to the Phase 2a PCA path
+with a printed message.
+
+**Why:** Real predictions for session-01/cuttle-01 landed with per-frame likelihoods
+around 0.998-0.999, confirming the format is the pose-estimation tool's native output
+rather than something worth re-deriving. 0.9 is a reasonably strict cutoff given that
+baseline — chosen without yet having seen a real low-confidence frame to calibrate
+against, so it may need revisiting once more sessions' predictions land. The
+`--pose-dir`/`--pose-path` split mirrors the `--output-dir`/`--video-path` pattern already
+used by both commands, so batch runs auto-discover predictions per video while a single
+video can still be pointed at an explicit file.
+
+**Alternatives considered:** a separate `inscribe_rectangle_from_pose` /
+`compute_corner_trajectory_from_pose` entry point mirroring the PCA-based ones —
+rejected, since it would have duplicated the mask-recovery/rotation/seeding/growing/
+corner-mapping logic that's identical in both paths; `tail`/`neck` as optional kwargs on
+the existing functions keeps one implementation with a two-way branch instead.
+
+**Trade-off / known risk:** the 0.9 threshold is currently unvalidated against any
+actual low-confidence frame (all real predictions seen so far are >0.98); revisit once
+more sessions' pose predictions land and some genuinely uncertain frames show up.
+Trusting the pose CSV's row count against the video's frame count (rather than
+reconciling an explicit count) means a mismatch would surface as an `IndexError` in
+`compute_corner_trajectory` rather than a clear error message — acceptable since the one
+real file pairing confirmed an exact match; revisit if that stops holding once more
+sessions land.
+
+---
+
+## Phase 2b keypoint scheme: tail + neck only, mask-cut over ellipse-fit
+
+**Date:** 2026-07-10
+**Status:** decided (design); implementation blocked on pose labeling/training
+
+**Decision:** Use two pose keypoints (tail tip, head/body "neck" transition point)
+rather than the originally planned four (tail, neck, two lateral mantle-width points).
+Use the neck point as a mask-cutting boundary (zero out everything past it — the
+head/arm side) combined with the signed tail→neck vector for orientation, then reuse
+Phase 2a's existing mask-based sizing pipeline (distance-transform seed + integral-image
+rectangle growth, via `seed_from_distance_transform`/`grow_rectangle`) on the resulting
+mantle-only mask — rather than fitting a synthetic ellipse from four keypoints. Full
+technical plan in [PHASES.md](PHASES.md) Phase 2b.
+
+**Why:** A first real labeling attempt at the original 4-point scheme found the two
+lateral "width" points difficult to label consistently — much less anatomically
+well-defined landmarks than tail-tip and neck-transition. Dropping them isn't just a
+labeling-effort compromise: reusing the real (cut) mask for sizing instead of an ellipse
+also eliminates a known limitation of the original plan (a symmetric ellipse couldn't
+capture the mantle's true taper), so the new design is a strict improvement, not a
+fallback.
+
+**Alternatives considered:** the original 4-point ellipse-fit plan (see "Orientation
+estimation" entry below) — rejected for the reasons above.
+
+**Trade-off / known risk:** loses keypoint-derived occlusion robustness specifically for
+the width dimension — if the mask is corrupted right at the mantle in the one
+already-unresolved edge case (an occluding blob touching the image border), width sizing
+is still affected, where a pure keypoint-derived ellipse would have been immune. This
+narrow risk was already accepted as part of the mask-recovery decision below; nothing
+new here.
+
+---
+
 ## Body mask recovery: background-complement, not intensity thresholding
 
 **Date:** 2026-07-10
@@ -104,11 +232,11 @@ the mask with dark-patterning holes, arm posture became the dominant failure mod
 frequently finds its largest rectangle straddling the arm crown rather than centered on
 the mantle, since splayed arms are part of the same connected component as the mantle.
 
-**Fallback:** switch to pose keypoints for a more robust, occlusion-tolerant axis.
-Scoped in [PHASES.md](PHASES.md) Phase 2b: four keypoints (tail tip, head/body
-transition, two lateral mantle-width points) fit a simple ellipse approximating the
-mantle, giving a signed head-right axis and excluding arms by construction. Prioritized
-now that the PCA failure mode is confirmed on real data rather than hypothetical.
+**Fallback:** switch to pose keypoints for a more robust axis. Originally scoped as a
+4-keypoint ellipse fit; superseded by a 2-keypoint (tail + neck) mask-cut design — see
+the "Phase 2b keypoint scheme" entry above and [PHASES.md](PHASES.md) Phase 2b for the
+current plan. Prioritized now that the PCA failure mode is confirmed on real data rather
+than hypothetical.
 
 ---
 

@@ -102,15 +102,33 @@ black RGB pixels baked into the frame.
 The rectangle is fixed at a 2:1 aspect ratio (long axis along the body) to keep box shape
 from adding its own noise on top of body-position/orientation noise.
 
-### Phase 2a: rectangle inscription via classical CV — validated on real data
+### Phase 2a: rectangle inscription via classical CV — implemented, CLI-exposed
 
-Implemented in `cuttle_patterns/preprocessing/inscribe.py`; visualized via
-`scratch/run_inscribe_v1.py`, which samples a reproducible random set of frames (fixed
-seed, known-blank frames excluded) from a raw video and writes annotated frames to
-`{results_dir}/inscribe/{version}/` — rerun anytime to sanity-check changes against real
-data.
+Single-frame geometry lives in `cuttle_patterns/preprocessing/inscribe.py`; per-video
+orchestration in `cuttle_patterns/preprocessing/align.py` and
+`cuttle_patterns/preprocessing/overlay.py`. Exposed via two CLI commands:
 
-Per frame:
+- `cuttle inscribe [--data-dir] [--results-dir] [--output-dir] [--video-path] [--thresh]
+  [--aspect] [--canonical-height]` — for every raw video in `data_dir` (or one, via
+  `--video-path`): computes the per-frame rectangle trajectory, linearly interpolates
+  over frames with no detected body, warps each frame's rectangle into a fixed canonical
+  size (`aspect * canonical_height` × `canonical_height`, default 200×100), and writes
+  `{output_dir}/{video_name}.mp4` (the aligned crop video) plus `.csv` (per-frame corner
+  geometry + an `is_interpolated` flag). `output_dir` defaults to
+  `results_dir/rectangles`.
+- `cuttle overlay [same flags]` — QC tool. For each video, if `{video_name}.csv` doesn't
+  exist yet, runs the same inscribe logic to produce it; then draws each frame's
+  (interpolated) rectangle on the *raw* frame — green if directly detected, orange if
+  interpolated — and writes `{output_dir}/{video_name}_overlay.mp4`.
+
+Tests: `tests/preprocessing/{test_inscribe,test_align,test_overlay}.py` and
+`tests/cli/{test_cmd_inscribe,test_cmd_overlay}.py`. There's also a standalone
+visualization script predating the CLI, `scratch/run_inscribe_v1.py`, which samples a
+reproducible random set of frames (fixed seed) from a raw video and writes annotated
+PNGs to `{results_dir}/inscribe/{version}/` — still useful for quick single-frame
+iteration without running a full video through the CLI.
+
+Per-frame single-image pipeline (`inscribe.py`):
 1. Recover the body mask as the complement of the frame's largest connected background
    blob (see "mask recovery" below — this is not simple intensity thresholding).
 2. Estimate the body's principal axis via PCA on the mask's foreground pixel coordinates
@@ -141,13 +159,14 @@ Per frame:
   dominant background region per frame (holds as long as the body doesn't split the frame
   into disconnected background pockets).
 
-**Known limitations, deliberately deferred to Phase 2b:**
+**Known limitations — status as of the last real-data check:**
 - Head/tail direction is unresolved — PCA gives an axis, not a sign, so the rectangle is
-  orientation-aligned but not yet canonically "head right."
-- Arm posture bias is now the **dominant** failure mode: with the mask no longer
-  fragmented by dark-patterning holes, PCA is free to find the largest rectangle anywhere
-  across the full mantle+arm-crown blob, and it frequently lands straddling the arm crown
-  rather than centered on the mantle. Confirmed visually across the 20-frame sample.
+  orientation-aligned but not yet canonically "head right." Being addressed by Phase 2b
+  below.
+- Arm posture bias is the **dominant** failure mode: PCA is free to find the largest
+  rectangle anywhere across the full mantle+arm-crown blob, and it frequently lands
+  straddling the arm crown rather than centered on the mantle. Confirmed visually across
+  a 20-frame sample. Being addressed by Phase 2b below.
 - Occlusion (one fish crossing in front of the other, masking the far fish's pixels to
   black) is likely improved as a side effect of the v3 mask recovery — an occluding blob
   fully inside the target fish's silhouette forms its own small background component and
@@ -157,38 +176,123 @@ Per frame:
   either way — the rectangle is allowed to contain occluded (black) pixels; downstream
   pattern analysis handling of those pixels is out of scope for this phase.
 
-Next: prioritize Phase 2b, since arm-bias is now the clear dominant failure mode observed
-on real data.
+### Phase 2b: pose-informed refinement — implemented, CLI-exposed
 
-### Phase 2b: pose-informed refinement — planned, not started
+**Status:** a first labeling attempt at the originally-planned 4-keypoint scheme (tail,
+neck, two lateral mantle-width points) found the two lateral "width" points hard to
+label consistently. The design below replaces that plan with a 2-keypoint scheme and
+supersedes the old one (see [DECISIONS.md](DECISIONS.md)). Real per-frame tail/neck
+predictions for session-01/cuttle-01 landed (from a pose-estimation model trained outside
+this codebase) and the integration below is implemented: `tail`/`neck` are optional
+keyword args on the existing `inscribe_rectangle` (not a parallel function) — when both
+are given it uses `body_orientation_signed` instead of PCA and cuts the rotated mask at
+the neck via `cut_mask_at_neck` before sizing; when omitted, behavior is unchanged from
+Phase 2a. Same pattern one level up: `compute_corner_trajectory` takes optional
+`tail_xy`/`neck_xy` per-frame arrays, and `align_video` takes an optional `pose_path`.
 
-- Obtain a lightweight pose model (likely via `beast-backbones` infra) predicting four
-  keypoints per frame: tail tip, head/body (mantle-neck) transition point, and two
-  lateral mantle-width points (one per side, roughly halfway between tail and
-  transition). The transition point is anatomically fixed regardless of arm posture,
-  unlike an arm/head-tip keypoint, which is why it's the one that matters for excluding
-  arms from the mantle estimate.
-- Use the tail → transition vector as a signed axis to canonically orient the body head-
-  right, resolving Phase 2a's direction ambiguity.
-- Fit a simple ellipse from the four points (semi-major axis = half the tail-transition
-  distance, semi-minor axis = the measured half-width) as an occlusion-robust
-  approximation of the mantle silhouette. This replaces raw-mask PCA for both orientation
-  and rectangle containment, and excludes head/arms by construction — no separate mask
-  cut needed. Because it's derived from keypoints rather than pixel color, it degrades
-  gracefully under the same occlusion that breaks Phase 2a's pixel-based mask.
-- Known simplification: a symmetric ellipse won't capture the mantle's true taper
-  (narrower at the tail, wider near the neck). Revisit with additional width keypoints
-  only if this proves too lossy for the inscribed rectangle in practice.
-- Not needed to unblock Phase 2a; only pursue once Phase 2a's limitations are visually
-  confirmed to matter enough to justify building/training a pose model.
+**Keypoints needed (2, not 4):**
+- `tail`: tip of the mantle, opposite the head.
+- `neck`: the head/body (mantle-neck) transition point. Anatomically fixed regardless of
+  arm posture (unlike an arm/head-tip keypoint), which is why it's usable as a mask-cut
+  boundary — see step 3 below. Obtain via a lightweight pose model (`beast-backbones`
+  infra, or DeepLabCut/SLEAP as a fallback — see [DECISIONS.md](DECISIONS.md)).
 
-### Remaining Phase 2 work (after 2a is validated, and 2b if needed)
+**Algorithm (supersedes the original 4-point ellipse-fit plan):**
+1. Compute a **signed** axis angle from `neck - tail` (instead of PCA's unsigned major
+   axis), so head-right orientation falls out directly — no separate direction-
+   disambiguation step needed.
+2. Rotate the v3 background-complement mask upright using this signed angle (reuses
+   `rotate_mask_upright` unchanged, just fed a pose-derived angle instead of a PCA one).
+3. Project the `neck` point through the same affine transform to get its rotated
+   x-coordinate, and zero out every mask pixel past it (the head/arm side) — a **new**
+   masking step, not present in Phase 2a. This is what actually fixes arm bias:
+   everything downstream only ever sees the mantle.
+4. Feed the cut, rotated mask into the **existing, unchanged** Phase 2a sizing machinery
+   — `seed_from_distance_transform` + `grow_rectangle` (binary search + coordinate
+   ascent) — then map corners back via the inverse rotation, same as Phase 2a step 6.
 
-- Final rotate/crop/warp of each frame to a fixed canonical size using the inscribed
-  rectangle, and writing derived videos mirroring the input session/fish structure under
-  `data_dir` (or a `derived/aligned/` subtree).
-- Canonical crop size needs to accommodate the range of inscribed-rectangle sizes across
-  the dataset without excessive padding for smaller ones.
+So Phase 2b is not a parallel implementation — it only replaces the orientation source
+(Phase 2a step 2) and inserts one new masking step before the existing sizing logic
+(before Phase 2a step 4). Implemented as: `body_orientation_signed(tail, neck)` in
+`inscribe.py`, a signed counterpart to `body_orientation(mask)`; `cut_mask_at_neck(mask,
+neck_x)`; and `tail`/`neck` as optional kwargs on `inscribe_rectangle` itself, rather than
+a separate entry point — the mask recovery, rotation, seeding/growing, and corner mapping
+are identical either way, so branching inside one function avoided duplicating them.
+`compute_corner_trajectory` (in `align.py`) similarly takes optional `tail_xy`/`neck_xy`
+per-frame arrays and passes them straight through per frame.
+
+Per-frame pose predictions are read from `cuttle_patterns/preprocessing/pose.py`:
+`load_pose_predictions` parses the CSV a pose-estimation model actually produces — the
+standard multi-header format (three header rows: scorer/bodyparts/coords), not a
+simplified schema — and `interpolate_pose` linearly interpolates (flat extrapolation at
+the edges, same convention as `interpolate_corners`) over any frame where either
+keypoint's likelihood is below 0.9. `interpolate_pose` trusts that the pose CSV has
+exactly one row per video frame (confirmed on the one real file seen so far) rather than
+taking an explicit frame count to reconcile against — `align_video` no longer needs to
+open the video up front just to learn its frame count before calling it.
+`align_video` takes an optional `pose_path` and ORs this interpolation mask into the one
+already written for undetected/cut-empty frames. `cuttle inscribe`/`cuttle overlay` add
+`--pose-dir` (default `results_dir/pose`, looked up per video as `{video_name}.csv`) and
+`--pose-path` (single-video override); a video with no matching pose file falls back to
+the Phase 2a PCA path with a printed message, so a batch run works over a mix of videos
+with and without pose predictions.
+
+**Why this is better than the original 4-point ellipse-fit plan, not just simpler:**
+using the real (cut) mask for sizing instead of fitting a synthetic ellipse also
+eliminates a known limitation of the old plan — a symmetric ellipse couldn't capture the
+mantle's true taper (narrower at the tail, wider near the neck); the mask-based approach
+gets the real shape for free.
+
+**Known trade-off:** loses keypoint-derived occlusion robustness specifically for the
+*width* dimension — if the mask itself is corrupted right at the mantle in the one
+already-unresolved edge case (an occluding blob touching the image border), width sizing
+would still be affected, where a pure keypoint-derived ellipse would have been immune.
+Accepted as a narrow, already-known risk (see the occlusion bullet under Phase 2a), not a
+new one.
+
+### Temporal smoothing — implemented
+
+**Status:** visual QC via `cuttle overlay` on session-01/cuttle-01 (the 1:35-1:40 window)
+showed the rectangle jittering frame-to-frame — center jumps averaging ~13px (max ~53px)
+— even where the body's actual pose barely changes, tracking the fins' beat rather than
+real motion. `align.py` applies one of two smoothers to the final corner trajectory
+(after `interpolate_corners` and after ORing in the pose interpolation mask), mutually
+exclusive via `align_video`'s `smoothing_window`/`smoothing_sigma` args (raises
+`ValueError` if both given) and `cuttle inscribe`/`cuttle overlay`'s `--smoothing-window`/
+`--smoothing-sigma` (an argparse mutually-exclusive group):
+
+- `smooth_corners_gaussian` — Gaussian filter, `--smoothing-sigma` (standard deviation in
+  frames; 2.0 if given with no value). **The default when neither smoothing flag is
+  given** — added first as the safer default (median), then switched to Gaussian once
+  visual QC on this same clip showed the median's own output still looked jumpy; blends
+  the whole window rather than snapping to one observed value, which tracks continuous,
+  quasi-periodic jitter (fin beats) more smoothly than the median at comparable strength,
+  at the cost of blending in rather than rejecting a single genuinely-bad frame.
+- `smooth_corners` — centered rolling median, `--smoothing-window` (9 frames if given
+  with no value; 1 disables smoothing). Robust to a one- or two-frame outlier (rejects it
+  outright) at the cost of a "steppy" trajectory that doesn't fully flatten continuous
+  jitter.
+
+Measured on the 1:35-1:40 window (mean/max frame-to-frame center jump): raw ~13px/~53px;
+median (w=9) ~2.6px/~9px; gaussian (σ=1.5, comparable strength to the median) ~2.7px/~8px
+but with lower variance; gaussian (σ=2.0, the CLI default) ~1.25px/~4px. No visible lag
+against the body at any of these settings on this clip.
+
+**Open question:** both the window (9 frames) and sigma (2.0) were tuned by eye/on this
+one noisy clip; revisit either if they lag behind genuinely fast movements (e.g. escape
+jets) elsewhere in the dataset.
+
+### Remaining Phase 2 work
+
+- ~~Final rotate/crop/warp + derived-video writing~~ — done, see Phase 2a above
+  (`align_video` / `cuttle inscribe`).
+- Canonical crop size (`--canonical-height`, default 100; width = `round(aspect *
+  height)`) is still an arbitrary placeholder — revisit once the distribution of
+  inscribed-rectangle sizes across the full (eventually 72-session) dataset is known.
+- ~~Phase 2b's pose-data plumbing~~ — done, see Phase 2b above (`--pose-dir`/`--pose-path`
+  on `cuttle inscribe`/`cuttle overlay`). Only session-01/cuttle-01 has pose predictions
+  so far; revisit the 0.9 likelihood threshold once more sessions' predictions land and
+  their confidence distribution is known.
 
 ---
 

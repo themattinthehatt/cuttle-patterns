@@ -1,12 +1,13 @@
 """Inscribe a fixed-aspect-ratio rectangle inside a cuttlefish body mask.
 
-The rectangle is aligned to the body's principal axis (via PCA on the mask) rather than
-the image axes, and its aspect ratio is fixed at 2:1 so that box shape doesn't add its
-own noise on top of body-position/orientation noise. See `docs/PHASES.md` (Phase 2a) for
-the surrounding pipeline and known limitations: head/tail direction is not resolved here
-(PCA gives an axis, not a sign), and with the mask no longer fragmented by dark-patterning
-holes, the dominant remaining failure mode is extended arms biasing the PCA axis/centroid
-away from the mantle, both deferred to Phase 2b (pose-based mantle isolation).
+The rectangle is aligned to the body's principal axis rather than the image axes, and its
+aspect ratio is fixed at 2:1 so that box shape doesn't add its own noise on top of
+body-position/orientation noise. By default (Phase 2a) the axis comes from PCA on the
+mask, which leaves head/tail direction unresolved and is biased by extended arms (PCA is
+free to find its largest rectangle straddling the arm crown rather than the mantle). When
+per-frame tail/neck keypoints are available, `inscribe_rectangle` switches to the
+pose-informed Phase 2b path instead, which resolves both issues. See `docs/PHASES.md`
+(Phase 2a/2b) for the surrounding pipeline.
 """
 
 from dataclasses import dataclass
@@ -100,6 +101,52 @@ def body_orientation(mask: np.ndarray) -> tuple[float, float, float]:
     angle = float(np.degrees(np.arctan2(major_axis[1], major_axis[0])))
 
     return float(centroid[0]), float(centroid[1]), angle
+
+
+def body_orientation_signed(
+    tail: tuple[float, float],
+    neck: tuple[float, float],
+) -> tuple[float, float, float]:
+    """Estimate body center and a signed axis angle from tail/neck keypoints.
+
+    Signed counterpart to `body_orientation`: since `neck - tail` has a known direction
+    (unlike a PCA major axis), the resulting angle resolves head/tail directly, with no
+    separate direction-disambiguation step. See Phase 2b in `docs/PHASES.md`.
+
+    Args:
+        tail: (x, y) tip of the mantle, opposite the head.
+        neck: (x, y) head/body transition point.
+
+    Returns:
+        (cx, cy, angle): the tail/neck midpoint and the signed angle in degrees such
+        that, after `rotate_mask_upright`, the neck lands on the +x side of center and
+        the tail on the -x side.
+    """
+    cx = (tail[0] + neck[0]) / 2
+    cy = (tail[1] + neck[1]) / 2
+    angle = float(np.degrees(np.arctan2(neck[1] - tail[1], neck[0] - tail[0])))
+
+    return cx, cy, angle
+
+
+def cut_mask_at_neck(mask: np.ndarray, neck_x: float) -> np.ndarray:
+    """Zero out the head/arm side of a rotated mask, keeping only the tail/mantle side.
+
+    Assumes the mask was rotated upright via `rotate_mask_upright` fed a signed
+    tail->neck angle (see `body_orientation_signed`), so the head/arms are the +x side of
+    `neck_x`. This is the step that fixes the arm-posture bias described in Phase 2a: the
+    rectangle-growing step downstream only ever sees the mantle.
+
+    Args:
+        mask: binary body mask (0/255), already rotated upright.
+        neck_x: x-coordinate of the neck keypoint in the rotated mask's frame.
+
+    Returns:
+        a copy of mask with every column at or past `round(neck_x)` set to 0.
+    """
+    cut = mask.copy()
+    cut[:, round(neck_x):] = 0
+    return cut
 
 
 def rotate_mask_upright(
@@ -227,30 +274,51 @@ def inscribe_rectangle(
     frame: np.ndarray,
     thresh: int = DEFAULT_THRESHOLD,
     aspect: float = DEFAULT_ASPECT_RATIO,
+    tail: tuple[float, float] | None = None,
+    neck: tuple[float, float] | None = None,
 ) -> InscribedRect | None:
     """Inscribe the largest fixed-aspect-ratio rectangle inside a frame's body mask.
 
-    Recovers the body mask (see `threshold_body_mask`), estimates body orientation via
-    PCA, rotates the mask upright, seeds a candidate rectangle from the distance-
-    transform peak, and grows/refines it before mapping the result back to
-    original-frame coordinates.
+    Recovers the body mask (see `threshold_body_mask`), rotates it upright, seeds a
+    candidate rectangle from the distance-transform peak, and grows/refines it before
+    mapping the result back to original-frame coordinates.
+
+    When `tail`/`neck` are both given (Phase 2b), orientation comes from
+    `body_orientation_signed` instead of PCA, and the rotated mask is cut at the neck
+    (`cut_mask_at_neck`) before sizing, so the rectangle search never sees the head/arm
+    side. See Phase 2b in `docs/PHASES.md`.
 
     Args:
         frame: decoded video frame, grayscale or BGR.
         thresh: pixel intensities <= this value are candidate background pixels; see
             `threshold_body_mask`.
         aspect: fixed width-to-height ratio of the rectangle.
+        tail: (x, y) tip of the mantle; if given along with `neck`, switches to the
+            pose-informed Phase 2b path.
+        neck: (x, y) head/body transition point; if given along with `tail`, switches to
+            the pose-informed Phase 2b path.
 
     Returns:
         the inscribed rectangle in original-frame coordinates, or None if no foreground
-        body is found.
+        body (or, in the pose-informed path, no mantle) is found.
     """
     mask = threshold_body_mask(frame, thresh)
     if not mask.any():
         return None
 
-    cx, cy, angle = body_orientation(mask)
+    use_pose = tail is not None and neck is not None
+    if use_pose:
+        cx, cy, angle = body_orientation_signed(tail, neck)
+    else:
+        cx, cy, angle = body_orientation(mask)
     rotated, m_inv = rotate_mask_upright(mask, (cx, cy), angle)
+
+    if use_pose:
+        m_fwd = cv2.invertAffineTransform(m_inv)
+        neck_rotated = cv2.transform(np.array([[neck]], dtype=np.float64), m_fwd)[0, 0]
+        rotated = cut_mask_at_neck(rotated, neck_rotated[0])
+        if not rotated.any():
+            return None
 
     seed = seed_from_distance_transform(rotated)
     rcx, rcy, w, h = grow_rectangle(rotated, seed, aspect=aspect)

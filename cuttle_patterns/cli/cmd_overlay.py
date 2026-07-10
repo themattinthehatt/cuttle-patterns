@@ -1,0 +1,179 @@
+"""Overlay subcommand: draw inscribed rectangles on raw video frames, for QC."""
+
+import argparse
+import sys
+from pathlib import Path
+
+from cuttle_patterns.config import load_config
+from cuttle_patterns.ingest import find_raw_videos
+from cuttle_patterns.preprocessing.align import (
+    DEFAULT_CANONICAL_HEIGHT,
+    DEFAULT_SMOOTHING_SIGMA,
+    DEFAULT_SMOOTHING_WINDOW,
+    align_video,
+)
+from cuttle_patterns.preprocessing.inscribe import DEFAULT_ASPECT_RATIO, DEFAULT_THRESHOLD
+from cuttle_patterns.preprocessing.overlay import DEFAULT_CRF, create_overlay_video
+
+OUTPUT_RELPATH = Path('rectangles')
+POSE_RELPATH = Path('pose')
+
+
+def register(subparsers: argparse._SubParsersAction) -> None:
+    """Register the overlay subcommand.
+
+    Args:
+        subparsers: the subparsers action from the root argument parser
+    """
+    parser = subparsers.add_parser(
+        'overlay',
+        help="draw a video's inscribed rectangles on its raw frames, for QC",
+    )
+    parser.add_argument(
+        '--data-dir',
+        type=Path,
+        metavar='PATH',
+        help='override the data directory from config',
+    )
+    parser.add_argument(
+        '--results-dir',
+        type=Path,
+        metavar='PATH',
+        help='override the results directory from config',
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=Path,
+        metavar='PATH',
+        help=f'directory containing/receiving {{video_name}}.csv and '
+        f'{{video_name}}_overlay.mp4; defaults to results_dir/{OUTPUT_RELPATH}',
+    )
+    parser.add_argument(
+        '--video-path',
+        type=Path,
+        metavar='PATH',
+        help='process a single video instead of every raw video in data_dir',
+    )
+    parser.add_argument(
+        '--pose-dir',
+        type=Path,
+        metavar='PATH',
+        help=f'directory containing {{video_name}}.csv pose predictions (see '
+        f'cuttle_patterns.preprocessing.pose), passed to inscribe if {{video_name}}.csv '
+        f'does not exist yet; defaults to results_dir/{POSE_RELPATH}',
+    )
+    parser.add_argument(
+        '--pose-path',
+        type=Path,
+        metavar='PATH',
+        help='pose predictions CSV for --video-path; overrides --pose-dir lookup',
+    )
+    parser.add_argument(
+        '--thresh',
+        type=int,
+        default=DEFAULT_THRESHOLD,
+        help='passed to inscribe if {video_name}.csv does not exist yet',
+    )
+    parser.add_argument(
+        '--aspect',
+        type=float,
+        default=DEFAULT_ASPECT_RATIO,
+        help='passed to inscribe if {video_name}.csv does not exist yet',
+    )
+    parser.add_argument(
+        '--canonical-height',
+        type=int,
+        default=DEFAULT_CANONICAL_HEIGHT,
+        help='passed to inscribe if {video_name}.csv does not exist yet',
+    )
+    parser.add_argument(
+        '--crf',
+        type=int,
+        default=DEFAULT_CRF,
+        help='x264 constant rate factor for the overlay video; lower is higher quality '
+        'and a larger file',
+    )
+    smoothing_group = parser.add_mutually_exclusive_group()
+    smoothing_group.add_argument(
+        '--smoothing-window',
+        type=int,
+        nargs='?',
+        const=DEFAULT_SMOOTHING_WINDOW,
+        default=None,
+        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; '
+        f'{DEFAULT_SMOOTHING_WINDOW} if given with no value; mutually exclusive with '
+        f'--smoothing-sigma (the default smoother if neither flag is given)',
+    )
+    smoothing_group.add_argument(
+        '--smoothing-sigma',
+        type=float,
+        nargs='?',
+        const=DEFAULT_SMOOTHING_SIGMA,
+        default=None,
+        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; '
+        f'{DEFAULT_SMOOTHING_SIGMA} if given with no value, and also the default if '
+        f'neither smoothing flag is given',
+    )
+    parser.set_defaults(handler=cmd_overlay)
+
+
+def cmd_overlay(args: argparse.Namespace) -> None:
+    """Draw inscribed rectangles on raw video frames, computing geometry if needed.
+
+    Args:
+        args: parsed command-line arguments
+    """
+    if args.data_dir is not None and args.results_dir is not None:
+        data_dir = args.data_dir
+        results_dir = args.results_dir
+    else:
+        try:
+            config = load_config()
+        except (FileNotFoundError, ValueError) as e:
+            print(f'Error: {e}')
+            sys.exit(1)
+        data_dir = args.data_dir if args.data_dir is not None else config.data_dir
+        results_dir = args.results_dir if args.results_dir is not None else config.results_dir
+
+    output_dir = args.output_dir if args.output_dir is not None else results_dir / OUTPUT_RELPATH
+    pose_dir = args.pose_dir if args.pose_dir is not None else results_dir / POSE_RELPATH
+
+    if args.video_path is not None:
+        video_paths = [args.video_path]
+    else:
+        try:
+            video_paths = find_raw_videos(data_dir)
+        except FileNotFoundError as e:
+            print(f'Error: {e}')
+            sys.exit(1)
+        if not video_paths:
+            print(f'No raw videos found in {data_dir}.')
+            return
+
+    for video_path in video_paths:
+        csv_path = output_dir / f'{video_path.stem}.csv'
+        if not csv_path.exists():
+            pose_path = (
+                args.pose_path if args.pose_path is not None
+                else pose_dir / f'{video_path.stem}.csv'
+            )
+            if not pose_path.exists():
+                print(f'  no pose predictions at {pose_path}, using PCA-based inscription')
+                pose_path = None
+
+            print(f'{csv_path} not found, running inscribe for {video_path}...')
+            align_video(
+                video_path,
+                output_dir,
+                thresh=args.thresh,
+                aspect=args.aspect,
+                canonical_height=args.canonical_height,
+                pose_path=pose_path,
+                smoothing_window=args.smoothing_window,
+                smoothing_sigma=args.smoothing_sigma,
+            )
+
+        overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
+        print(f'writing overlay for {video_path}...')
+        create_overlay_video(video_path, csv_path, overlay_path, crf=args.crf)
+        print(f'  wrote {overlay_path}')
