@@ -1,6 +1,7 @@
 """Tests for cuttle_patterns.cli.cmd_inscribe."""
 
 import argparse
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pandas as pd
 import pytest
 
 from cuttle_patterns.cli.cmd_inscribe import cmd_inscribe
+from cuttle_patterns.cli.main import main
 
 
 def _raise_file_not_found() -> None:
@@ -57,6 +59,8 @@ class TestCmdInscribe:
             thresh=0,
             aspect=2.0,
             canonical_height=20,
+            smoothing_window=9,
+            smoothing_sigma=None,
         )
 
         # Act & Assert
@@ -89,6 +93,8 @@ class TestCmdInscribe:
             thresh=0,
             aspect=2.0,
             canonical_height=20,
+            smoothing_window=9,
+            smoothing_sigma=None,
         )
 
         # Act
@@ -132,6 +138,8 @@ class TestCmdInscribe:
             thresh=0,
             aspect=2.0,
             canonical_height=20,
+            smoothing_window=9,
+            smoothing_sigma=None,
         )
 
         # Act
@@ -142,3 +150,23 @@ class TestCmdInscribe:
         assert (output_dir / 'session-01_cuttle-01.mp4').exists()
         out = capsys.readouterr().out
         assert 'no pose predictions' not in out
+
+    def test_cmd_inscribe_smoothing_flags_are_mutually_exclusive(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        monkeypatch.setattr(
+            sys,
+            'argv',
+            [
+                'cuttle', 'inscribe',
+                '--smoothing-window', '9',
+                '--smoothing-sigma', '2.0',
+            ],
+        )
+
+        # Act & Assert: argparse rejects both flags together at parse time
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 2

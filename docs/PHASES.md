@@ -250,6 +250,36 @@ would still be affected, where a pure keypoint-derived ellipse would have been i
 Accepted as a narrow, already-known risk (see the occlusion bullet under Phase 2a), not a
 new one.
 
+### Temporal smoothing — implemented
+
+**Status:** visual QC via `cuttle overlay` on session-01/cuttle-01 (the 1:35-1:40 window)
+showed the rectangle jittering frame-to-frame — center jumps averaging ~13px (max ~53px)
+— even where the body's actual pose barely changes, tracking the fins' beat rather than
+real motion. `align.py` applies one of two smoothers to the final corner trajectory
+(after `interpolate_corners` and after ORing in the pose interpolation mask), mutually
+exclusive via `align_video`'s `smoothing_window`/`smoothing_sigma` args (raises
+`ValueError` if both given) and `cuttle inscribe`/`cuttle overlay`'s `--smoothing-window`/
+`--smoothing-sigma` (an argparse mutually-exclusive group):
+
+- `smooth_corners` — centered rolling median, default window 9 frames (1 disables it).
+  The historical default when neither flag is given. Robust to a one- or two-frame
+  outlier (rejects it outright) at the cost of a "steppy" trajectory that doesn't fully
+  flatten continuous jitter.
+- `smooth_corners_gaussian` — Gaussian filter, `--smoothing-sigma` (standard deviation in
+  frames; defaults to 2.0 if the flag is given with no value). Blends the whole window
+  rather than snapping to one observed value, which tracks continuous, quasi-periodic
+  jitter (fin beats) more smoothly than the median at comparable strength, at the cost of
+  blending in rather than rejecting a single genuinely-bad frame.
+
+Measured on the 1:35-1:40 window (mean/max frame-to-frame center jump): raw ~13px/~53px;
+median (w=9) ~2.6px/~9px; gaussian (σ=1.5, comparable strength to the median) ~2.7px/~8px
+but with lower variance; gaussian (σ=2.0, the CLI default) ~1.25px/~4px. No visible lag
+against the body at any of these settings on this clip.
+
+**Open question:** both the window (9 frames) and sigma (2.0) were tuned by eye/on this
+one noisy clip; revisit either if they lag behind genuinely fast movements (e.g. escape
+jets) elsewhere in the dataset.
+
 ### Remaining Phase 2 work
 
 - ~~Final rotate/crop/warp + derived-video writing~~ — done, see Phase 2a above

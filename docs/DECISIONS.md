@@ -6,6 +6,48 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Rectangle-trajectory smoothing: median and Gaussian, mutually exclusive
+
+**Date:** 2026-07-10
+**Status:** decided, implemented
+
+**Decision:** Smooth the final per-frame rectangle corner trajectory with either a
+centered rolling median (`align.smooth_corners`, `--smoothing-window`, default 9 frames,
+1 disables it — the default smoother when neither flag is given) or a Gaussian filter
+(`align.smooth_corners_gaussian`, `--smoothing-sigma`, standard deviation in frames,
+defaults to 2.0 if given with no value), rather than fixing this upstream in mask/pose
+geometry. The two are mutually exclusive — an argparse mutually-exclusive group on the
+CLI, a `ValueError` in `align_video` if both are passed.
+
+**Why:** QC on session-01/cuttle-01 (1:35-1:40) showed the rectangle jittering
+frame-to-frame — well above baseline — driven by fin-beat oscillation rather than real
+body movement (visually, the box shifted between frames where the body's pose was
+essentially unchanged). Smoothing the final trajectory (not the pose keypoints, and not
+the mask) is the narrowest fix: the jitter shows up in the sized rectangle regardless of
+orientation source (PCA or pose-informed), so it needs to happen after both paths
+converge — the same place `interpolate_corners` already runs. The median was added
+first as the safer, outlier-robust default (rejects a one- or two-frame glitch outright).
+The Gaussian was added afterward once the median's own output still looked "jumpy" on
+the same clip: since the fin-beat noise is continuous/quasi-periodic rather than sparse
+spikes, blending the whole window (Gaussian) tracks it more smoothly than snapping to one
+observed value (median) at comparable strength — see the measurements in
+[PHASES.md](PHASES.md) (Temporal smoothing).
+
+**Alternatives considered:** smoothing the pose keypoints before orientation/mask-cut —
+rejected, since fin-driven jitter also affects the PCA-only path and the mask-based
+sizing step, not just pose; picking one smoother instead of offering both — rejected,
+since the median's outlier robustness and the Gaussian's smoother continuous tracking are
+genuinely different trade-offs and it's cheap to expose both.
+
+**Trade-off / known risk:** both the 9-frame median window and the 2.0 Gaussian sigma
+were tuned by eye against the one noisy clip checked so far; a genuinely fast real
+movement (e.g. an escape jet) could get smoothed more than intended by either — revisit
+if that shows up elsewhere in the dataset. The Gaussian is less robust to a single
+genuinely-bad frame than the median, since it blends the outlier in rather than
+rejecting it.
+
+---
+
 ## Phase 2b pose plumbing: real pose-CSV format, --pose-dir/--pose-path, 0.9 likelihood
 
 **Date:** 2026-07-10

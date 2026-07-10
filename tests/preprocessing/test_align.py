@@ -12,6 +12,8 @@ from cuttle_patterns.preprocessing.align import (
     align_video,
     compute_corner_trajectory,
     interpolate_corners,
+    smooth_corners,
+    smooth_corners_gaussian,
     warp_to_canonical,
 )
 
@@ -121,6 +123,60 @@ class TestInterpolateCorners:
             interpolate_corners(corners)
 
 
+class TestSmoothCorners:
+    """Test the function smooth_corners."""
+
+    def test_smooth_corners_damps_a_single_frame_outlier(self):
+        # Arrange: a constant trajectory except one outlier frame, e.g. a fin-beat
+        # glitch in an otherwise stable rectangle
+        corners = np.zeros((9, 4, 2))
+        corners[4] = 100.0
+
+        # Act
+        smoothed = smooth_corners(corners, window=5)
+
+        # Assert: the outlier is suppressed by the rolling median
+        assert smoothed[4] == pytest.approx(0.0)
+        assert smoothed[0] == pytest.approx(0.0)
+
+    def test_smooth_corners_window_one_is_noop(self):
+        # Arrange
+        corners = np.random.default_rng(0).uniform(size=(10, 4, 2))
+
+        # Act
+        smoothed = smooth_corners(corners, window=1)
+
+        # Assert
+        assert smoothed == pytest.approx(corners)
+
+
+class TestSmoothCornersGaussian:
+    """Test the function smooth_corners_gaussian."""
+
+    def test_smooth_corners_gaussian_damps_a_single_frame_outlier(self):
+        # Arrange: a constant trajectory except one outlier frame
+        corners = np.zeros((9, 4, 2))
+        corners[4] = 100.0
+
+        # Act
+        smoothed = smooth_corners_gaussian(corners, sigma=2.0)
+
+        # Assert: the outlier is spread out and damped, not eliminated outright (unlike
+        # the median), but still much smaller than the raw spike
+        assert smoothed[4].max() < 100.0
+        assert smoothed[4].max() > smoothed[0].max()
+
+    def test_smooth_corners_gaussian_near_zero_sigma_is_near_noop(self):
+        # Arrange
+        corners = np.random.default_rng(0).uniform(size=(10, 4, 2))
+
+        # Act
+        smoothed = smooth_corners_gaussian(corners, sigma=1e-6)
+
+        # Assert
+        assert smoothed == pytest.approx(corners, abs=1e-3)
+
+
 class TestWarpToCanonical:
     """Test the function warp_to_canonical."""
 
@@ -204,3 +260,69 @@ class TestAlignVideo:
         cap = cv2.VideoCapture(str(video_out_path))
         assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
         cap.release()
+
+    def test_align_video_smoothing_window_is_wired_through(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+    ):
+        # Arrange
+        video_path = make_custom_video(
+            tmp_path / 'session-01_cuttle-01.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        output_dir = tmp_path / 'out'
+
+        # Act: smoothing disabled (window=1) should not raise or change frame count
+        video_out_path, csv_out_path = align_video(
+            video_path, output_dir, canonical_height=20, smoothing_window=1,
+        )
+
+        # Assert
+        assert video_out_path.exists()
+        df = pd.read_csv(csv_out_path)
+        assert len(df) == 3
+
+    def test_align_video_smoothing_sigma_is_wired_through(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+    ):
+        # Arrange
+        video_path = make_custom_video(
+            tmp_path / 'session-01_cuttle-01.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        output_dir = tmp_path / 'out'
+
+        # Act
+        video_out_path, csv_out_path = align_video(
+            video_path, output_dir, canonical_height=20, smoothing_sigma=2.0,
+        )
+
+        # Assert
+        assert video_out_path.exists()
+        df = pd.read_csv(csv_out_path)
+        assert len(df) == 3
+
+    def test_align_video_smoothing_args_are_mutually_exclusive(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+    ):
+        # Arrange
+        video_path = make_custom_video(
+            tmp_path / 'session-01_cuttle-01.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        output_dir = tmp_path / 'out'
+
+        # Act & Assert
+        with pytest.raises(ValueError, match='mutually exclusive'):
+            align_video(
+                video_path,
+                output_dir,
+                canonical_height=20,
+                smoothing_window=9,
+                smoothing_sigma=2.0,
+            )

@@ -26,7 +26,7 @@ INTERPOLATED_COLOR_BGR = (0, 165, 255)
 # (falls back to the far less efficient mp4v/MPEG-4 Part 2 codec), so frames are piped to
 # the system ffmpeg binary instead, encoding with libx264 for a real (typically 5-10x)
 # size reduction at visually-lossless quality
-DEFAULT_CRF = 23
+DEFAULT_CRF = 28
 
 
 def _open_ffmpeg_writer(

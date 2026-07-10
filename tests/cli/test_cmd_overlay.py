@@ -1,6 +1,7 @@
 """Tests for cuttle_patterns.cli.cmd_overlay."""
 
 import argparse
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pandas as pd
 import pytest
 
 from cuttle_patterns.cli.cmd_overlay import cmd_overlay
+from cuttle_patterns.cli.main import main
 from cuttle_patterns.preprocessing.align import align_video
 
 
@@ -48,6 +50,8 @@ def _make_args(**overrides) -> argparse.Namespace:
         aspect=2.0,
         canonical_height=20,
         crf=23,
+        smoothing_window=9,
+        smoothing_sigma=None,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -178,3 +182,23 @@ class TestCmdOverlay:
         out = capsys.readouterr().out
         assert 'no pose predictions' in out
         assert (results_dir / 'rectangles' / 'session-01_cuttle-01_overlay.mp4').exists()
+
+    def test_cmd_overlay_smoothing_flags_are_mutually_exclusive(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        monkeypatch.setattr(
+            sys,
+            'argv',
+            [
+                'cuttle', 'overlay',
+                '--smoothing-window', '9',
+                '--smoothing-sigma', '2.0',
+            ],
+        )
+
+        # Act & Assert: argparse rejects both flags together at parse time
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 2

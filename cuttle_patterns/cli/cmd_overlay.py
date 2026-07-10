@@ -6,7 +6,12 @@ from pathlib import Path
 
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import find_raw_videos
-from cuttle_patterns.preprocessing.align import DEFAULT_CANONICAL_HEIGHT, align_video
+from cuttle_patterns.preprocessing.align import (
+    DEFAULT_CANONICAL_HEIGHT,
+    DEFAULT_SMOOTHING_SIGMA,
+    DEFAULT_SMOOTHING_WINDOW,
+    align_video,
+)
 from cuttle_patterns.preprocessing.inscribe import DEFAULT_ASPECT_RATIO, DEFAULT_THRESHOLD
 from cuttle_patterns.preprocessing.overlay import DEFAULT_CRF, create_overlay_video
 
@@ -88,6 +93,23 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help='x264 constant rate factor for the overlay video; lower is higher quality '
         'and a larger file',
     )
+    smoothing_group = parser.add_mutually_exclusive_group()
+    smoothing_group.add_argument(
+        '--smoothing-window',
+        type=int,
+        default=None,
+        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; defaults to '
+        f'{DEFAULT_SMOOTHING_WINDOW} unless --smoothing-sigma is given',
+    )
+    smoothing_group.add_argument(
+        '--smoothing-sigma',
+        type=float,
+        nargs='?',
+        const=DEFAULT_SMOOTHING_SIGMA,
+        default=None,
+        help=f'passed to inscribe if {{video_name}}.csv does not exist yet; defaults to '
+        f'{DEFAULT_SMOOTHING_SIGMA} if given with no value',
+    )
     parser.set_defaults(handler=cmd_overlay)
 
 
@@ -143,6 +165,8 @@ def cmd_overlay(args: argparse.Namespace) -> None:
                 aspect=args.aspect,
                 canonical_height=args.canonical_height,
                 pose_path=pose_path,
+                smoothing_window=args.smoothing_window,
+                smoothing_sigma=args.smoothing_sigma,
             )
 
         overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
