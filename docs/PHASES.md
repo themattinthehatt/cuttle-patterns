@@ -176,15 +176,19 @@ Per-frame single-image pipeline (`inscribe.py`):
   either way — the rectangle is allowed to contain occluded (black) pixels; downstream
   pattern analysis handling of those pixels is out of scope for this phase.
 
-### Phase 2b: pose-informed refinement — design finalized, blocked on pose labeling
+### Phase 2b: pose-informed refinement — implemented, CLI-exposed
 
 **Status:** a first labeling attempt at the originally-planned 4-keypoint scheme (tail,
 neck, two lateral mantle-width points) found the two lateral "width" points hard to
 label consistently. The design below replaces that plan with a 2-keypoint scheme and
-supersedes the old one (see [DECISIONS.md](DECISIONS.md)). Once per-frame tail/neck
-predictions exist for a video (however produced — labeling/training is happening outside
-this codebase), the remaining work is purely the integration described here; no further
-design decisions should be needed to resume.
+supersedes the old one (see [DECISIONS.md](DECISIONS.md)). Real per-frame tail/neck
+predictions for session-01/cuttle-01 landed (from a pose-estimation model trained outside
+this codebase) and the integration below is implemented: `tail`/`neck` are optional
+keyword args on the existing `inscribe_rectangle` (not a parallel function) — when both
+are given it uses `body_orientation_signed` instead of PCA and cuts the rotated mask at
+the neck via `cut_mask_at_neck` before sizing; when omitted, behavior is unchanged from
+Phase 2a. Same pattern one level up: `compute_corner_trajectory` takes optional
+`tail_xy`/`neck_xy` per-frame arrays, and `align_video` takes an optional `pose_path`.
 
 **Keypoints needed (2, not 4):**
 - `tail`: tip of the mantle, opposite the head.
@@ -209,14 +213,29 @@ design decisions should be needed to resume.
 
 So Phase 2b is not a parallel implementation — it only replaces the orientation source
 (Phase 2a step 2) and inserts one new masking step before the existing sizing logic
-(before Phase 2a step 4). Concretely, expect to add: a small function computing
-`(center, signed_angle)` from `(tail, neck)` to stand in for `body_orientation()`, and a
-mask-cutting function (e.g. `cut_mask_at_neck(rotated_mask, rotated_neck_x)`); then a new
-entry point analogous to `inscribe_rectangle` but taking `(frame, tail, neck)` instead of
-just `frame`. `align.py` / `cmd_inscribe.py` / `cmd_overlay.py` would need a way to read
-per-frame pose predictions to feed that entry point — likely a `--pose-path` CSV,
-convention not yet decided (e.g. `{results_dir}/pose/{video_name}.csv` with columns
-`frame_idx, tail_x, tail_y, neck_x, neck_y`).
+(before Phase 2a step 4). Implemented as: `body_orientation_signed(tail, neck)` in
+`inscribe.py`, a signed counterpart to `body_orientation(mask)`; `cut_mask_at_neck(mask,
+neck_x)`; and `tail`/`neck` as optional kwargs on `inscribe_rectangle` itself, rather than
+a separate entry point — the mask recovery, rotation, seeding/growing, and corner mapping
+are identical either way, so branching inside one function avoided duplicating them.
+`compute_corner_trajectory` (in `align.py`) similarly takes optional `tail_xy`/`neck_xy`
+per-frame arrays and passes them straight through per frame.
+
+Per-frame pose predictions are read from `cuttle_patterns/preprocessing/pose.py`:
+`load_pose_predictions` parses the CSV a pose-estimation model actually produces — the
+standard multi-header format (three header rows: scorer/bodyparts/coords), not a
+simplified schema — and `interpolate_pose` linearly interpolates (flat extrapolation at
+the edges, same convention as `interpolate_corners`) over any frame where either
+keypoint's likelihood is below 0.9. `interpolate_pose` trusts that the pose CSV has
+exactly one row per video frame (confirmed on the one real file seen so far) rather than
+taking an explicit frame count to reconcile against — `align_video` no longer needs to
+open the video up front just to learn its frame count before calling it.
+`align_video` takes an optional `pose_path` and ORs this interpolation mask into the one
+already written for undetected/cut-empty frames. `cuttle inscribe`/`cuttle overlay` add
+`--pose-dir` (default `results_dir/pose`, looked up per video as `{video_name}.csv`) and
+`--pose-path` (single-video override); a video with no matching pose file falls back to
+the Phase 2a PCA path with a printed message, so a batch run works over a mix of videos
+with and without pose predictions.
 
 **Why this is better than the original 4-point ellipse-fit plan, not just simpler:**
 using the real (cut) mask for sizing instead of fitting a synthetic ellipse also
@@ -238,8 +257,10 @@ new one.
 - Canonical crop size (`--canonical-height`, default 100; width = `round(aspect *
   height)`) is still an arbitrary placeholder — revisit once the distribution of
   inscribed-rectangle sizes across the full (eventually 72-session) dataset is known.
-- Phase 2b's pose-data plumbing (how `cuttle inscribe` / `cuttle overlay` find and
-  consume pose predictions) is undecided — see Phase 2b above.
+- ~~Phase 2b's pose-data plumbing~~ — done, see Phase 2b above (`--pose-dir`/`--pose-path`
+  on `cuttle inscribe`/`cuttle overlay`). Only session-01/cuttle-01 has pose predictions
+  so far; revisit the 0.9 likelihood threshold once more sessions' predictions land and
+  their confidence distribution is known.
 
 ---
 

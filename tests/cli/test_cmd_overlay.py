@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
 import pytest
 
 from cuttle_patterns.cli.cmd_overlay import cmd_overlay
@@ -22,12 +23,27 @@ def _blob_frame(height: int = 60, width: int = 120) -> np.ndarray:
     return frame
 
 
+def _write_pose_csv(path: Path, n_frames: int, tail: tuple, neck: tuple) -> Path:
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ('m', 'neck', 'x'), ('m', 'neck', 'y'), ('m', 'neck', 'likelihood'),
+            ('m', 'tail', 'x'), ('m', 'tail', 'y'), ('m', 'tail', 'likelihood'),
+        ],
+        names=['scorer', 'bodyparts', 'coords'],
+    )
+    data = [[neck[0], neck[1], 0.99, tail[0], tail[1], 0.99]] * n_frames
+    pd.DataFrame(data, columns=columns).to_csv(path)
+    return path
+
+
 def _make_args(**overrides) -> argparse.Namespace:
     defaults = dict(
         data_dir=None,
         results_dir=None,
         output_dir=None,
         video_path=None,
+        pose_dir=None,
+        pose_path=None,
         thresh=0,
         aspect=2.0,
         canonical_height=20,
@@ -107,3 +123,57 @@ class TestCmdOverlay:
         out = capsys.readouterr().out
         assert 'not found, running inscribe' not in out
         assert (output_dir / 'session-01_cuttle-01_overlay.mp4').exists()
+
+    def test_cmd_overlay_uses_matching_pose_file(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+        capsys: pytest.CaptureFixture,
+    ):
+        # Arrange: a pose CSV at the default results_dir/pose/{video_name}.csv location
+        data_dir = tmp_path / 'data'
+        results_dir = tmp_path / 'results'
+        data_dir.mkdir()
+        make_custom_video(
+            data_dir / 'session-01_cuttle-01.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        pose_dir = results_dir / 'pose'
+        pose_dir.mkdir(parents=True)
+        _write_pose_csv(
+            pose_dir / 'session-01_cuttle-01.csv', n_frames=3,
+            tail=(25.0, 30.0), neck=(95.0, 30.0),
+        )
+        args = _make_args(data_dir=data_dir, results_dir=results_dir)
+
+        # Act
+        cmd_overlay(args)
+
+        # Assert
+        out = capsys.readouterr().out
+        assert 'no pose predictions' not in out
+        assert (results_dir / 'rectangles' / 'session-01_cuttle-01_overlay.mp4').exists()
+
+    def test_cmd_overlay_falls_back_to_pca_when_pose_missing(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+        capsys: pytest.CaptureFixture,
+    ):
+        # Arrange: no pose predictions under results_dir/pose
+        data_dir = tmp_path / 'data'
+        results_dir = tmp_path / 'results'
+        data_dir.mkdir()
+        make_custom_video(
+            data_dir / 'session-01_cuttle-01.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        args = _make_args(data_dir=data_dir, results_dir=results_dir)
+
+        # Act
+        cmd_overlay(args)
+
+        # Assert
+        out = capsys.readouterr().out
+        assert 'no pose predictions' in out
+        assert (results_dir / 'rectangles' / 'session-01_cuttle-01_overlay.mp4').exists()

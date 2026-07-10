@@ -4,7 +4,9 @@ Orchestrates `cuttle_patterns.preprocessing.inscribe` over every frame of a vide
 a rectangle per frame, linearly interpolate over frames with no detected body (including
 genuinely blank frames, where every pixel is 0), warp each frame's rectangle into a fixed
 canonical size, and write both the resulting video and a CSV of the (interpolated)
-rectangle corners plus which frames were interpolated.
+rectangle corners plus which frames were interpolated. If a pose CSV is supplied (see
+`cuttle_patterns.preprocessing.pose`), rectangle inscription switches to the pose-informed
+Phase 2b path instead of Phase 2a's PCA-based one.
 """
 
 from pathlib import Path
@@ -18,6 +20,7 @@ from cuttle_patterns.preprocessing.inscribe import (
     DEFAULT_THRESHOLD,
     inscribe_rectangle,
 )
+from cuttle_patterns.preprocessing.pose import interpolate_pose, load_pose_predictions
 
 DEFAULT_CANONICAL_HEIGHT = 100
 
@@ -33,6 +36,8 @@ def compute_corner_trajectory(
     video_path: Path,
     thresh: int = DEFAULT_THRESHOLD,
     aspect: float = DEFAULT_ASPECT_RATIO,
+    tail_xy: np.ndarray | None = None,
+    neck_xy: np.ndarray | None = None,
 ) -> np.ndarray:
     """Run rectangle inscription on every frame of a video.
 
@@ -40,6 +45,10 @@ def compute_corner_trajectory(
         video_path: path to the raw video.
         thresh: passed through to `inscribe_rectangle`.
         aspect: passed through to `inscribe_rectangle`.
+        tail_xy: optional (n_frames, 2) per-frame tail keypoints; if given along with
+            `neck_xy`, switches `inscribe_rectangle` to the pose-informed Phase 2b path.
+        neck_xy: optional (n_frames, 2) per-frame neck keypoints; if given along with
+            `tail_xy`, switches `inscribe_rectangle` to the pose-informed Phase 2b path.
 
     Returns:
         (n_frames, 4, 2) array of rectangle corners. Frames with no detected body
@@ -54,12 +63,16 @@ def compute_corner_trajectory(
 
     rows = []
     try:
+        idx = 0
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            result = inscribe_rectangle(frame, thresh=thresh, aspect=aspect)
+            tail = tuple(tail_xy[idx]) if tail_xy is not None else None
+            neck = tuple(neck_xy[idx]) if neck_xy is not None else None
+            result = inscribe_rectangle(frame, thresh=thresh, aspect=aspect, tail=tail, neck=neck)
             rows.append(result.corners if result is not None else np.full((4, 2), np.nan))
+            idx += 1
     finally:
         cap.release()
 
@@ -128,6 +141,7 @@ def align_video(
     thresh: int = DEFAULT_THRESHOLD,
     aspect: float = DEFAULT_ASPECT_RATIO,
     canonical_height: int = DEFAULT_CANONICAL_HEIGHT,
+    pose_path: Path | None = None,
 ) -> tuple[Path, Path]:
     """Build an aligned crop video and rectangle-geometry CSV for one raw video.
 
@@ -141,6 +155,10 @@ def align_video(
         thresh: passed through to `inscribe_rectangle`.
         aspect: passed through to `inscribe_rectangle`.
         canonical_height: output crop height in pixels; width is `round(aspect * height)`.
+        pose_path: optional path to a per-frame tail/neck pose CSV (see
+            `cuttle_patterns.preprocessing.pose.load_pose_predictions`); if given, uses
+            the pose-informed Phase 2b rectangle-inscription path instead of Phase 2a's
+            PCA-based one.
 
     Returns:
         (video_out_path, csv_out_path).
@@ -152,8 +170,20 @@ def align_video(
     video_out_path = output_dir / f'{video_path.stem}.mp4'
     csv_out_path = output_dir / f'{video_path.stem}.csv'
 
-    corners = compute_corner_trajectory(video_path, thresh=thresh, aspect=aspect)
+    if pose_path is not None:
+        tail_xy, neck_xy, is_interpolated_pose = interpolate_pose(
+            load_pose_predictions(pose_path),
+        )
+        corners = compute_corner_trajectory(
+            video_path, thresh=thresh, aspect=aspect, tail_xy=tail_xy, neck_xy=neck_xy,
+        )
+    else:
+        is_interpolated_pose = None
+        corners = compute_corner_trajectory(video_path, thresh=thresh, aspect=aspect)
+
     corners, is_interpolated = interpolate_corners(corners)
+    if is_interpolated_pose is not None:
+        is_interpolated = is_interpolated | is_interpolated_pose
 
     canonical_size = (round(aspect * canonical_height), canonical_height)
 

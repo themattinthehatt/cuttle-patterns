@@ -10,6 +10,7 @@ from cuttle_patterns.preprocessing.align import DEFAULT_CANONICAL_HEIGHT, align_
 from cuttle_patterns.preprocessing.inscribe import DEFAULT_ASPECT_RATIO, DEFAULT_THRESHOLD
 
 OUTPUT_RELPATH = Path('rectangles')
+POSE_RELPATH = Path('pose')
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -46,6 +47,20 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         metavar='PATH',
         help='process a single video instead of every raw video in data_dir',
+    )
+    parser.add_argument(
+        '--pose-dir',
+        type=Path,
+        metavar='PATH',
+        help=f'directory containing {{video_name}}.csv pose predictions (see '
+        f'cuttle_patterns.preprocessing.pose); defaults to results_dir/{POSE_RELPATH}. '
+        f'Videos with no matching pose file fall back to the Phase 2a PCA-based path.',
+    )
+    parser.add_argument(
+        '--pose-path',
+        type=Path,
+        metavar='PATH',
+        help='pose predictions CSV for --video-path; overrides --pose-dir lookup',
     )
     parser.add_argument(
         '--thresh',
@@ -87,6 +102,7 @@ def cmd_inscribe(args: argparse.Namespace) -> None:
         results_dir = args.results_dir if args.results_dir is not None else config.results_dir
 
     output_dir = args.output_dir if args.output_dir is not None else results_dir / OUTPUT_RELPATH
+    pose_dir = args.pose_dir if args.pose_dir is not None else results_dir / POSE_RELPATH
 
     if args.video_path is not None:
         video_paths = [args.video_path]
@@ -101,6 +117,13 @@ def cmd_inscribe(args: argparse.Namespace) -> None:
             return
 
     for video_path in video_paths:
+        pose_path = (
+            args.pose_path if args.pose_path is not None else pose_dir / f'{video_path.stem}.csv'
+        )
+        if not pose_path.exists():
+            print(f'  no pose predictions at {pose_path}, using PCA-based inscription')
+            pose_path = None
+
         print(f'processing {video_path}...')
         video_out_path, csv_out_path = align_video(
             video_path,
@@ -108,6 +131,7 @@ def cmd_inscribe(args: argparse.Namespace) -> None:
             thresh=args.thresh,
             aspect=args.aspect,
             canonical_height=args.canonical_height,
+            pose_path=pose_path,
         )
         print(f'  wrote {video_out_path}')
         print(f'  wrote {csv_out_path}')

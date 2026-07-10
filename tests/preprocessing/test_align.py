@@ -26,6 +26,20 @@ def _blank_frame(height: int = 60, width: int = 120) -> np.ndarray:
     return np.zeros((height, width, 3), dtype=np.uint8)
 
 
+def _write_pose_csv(path: Path, n_frames: int, tail: tuple, neck: tuple) -> Path:
+    # same tail/neck point repeated for every frame, at full likelihood
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ('m', 'neck', 'x'), ('m', 'neck', 'y'), ('m', 'neck', 'likelihood'),
+            ('m', 'tail', 'x'), ('m', 'tail', 'y'), ('m', 'tail', 'likelihood'),
+        ],
+        names=['scorer', 'bodyparts', 'coords'],
+    )
+    data = [[neck[0], neck[1], 0.99, tail[0], tail[1], 0.99]] * n_frames
+    pd.DataFrame(data, columns=columns).to_csv(path)
+    return path
+
+
 class TestComputeCornerTrajectory:
     """Test the function compute_corner_trajectory."""
 
@@ -49,6 +63,23 @@ class TestComputeCornerTrajectory:
         assert not np.isnan(corners[0]).any()
         assert np.isnan(corners[1]).all()
         assert not np.isnan(corners[2]).any()
+
+    def test_compute_corner_trajectory_uses_pose_when_given(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+    ):
+        # Arrange
+        video_path = make_custom_video(tmp_path / 'video.mp4', [_blob_frame()])
+        tail_xy = np.array([[25.0, 30.0]])
+        neck_xy = np.array([[95.0, 30.0]])
+
+        # Act
+        corners = compute_corner_trajectory(video_path, tail_xy=tail_xy, neck_xy=neck_xy)
+
+        # Assert
+        assert corners.shape == (1, 4, 2)
+        assert not np.isnan(corners).any()
 
 
 class TestInterpolateCorners:
@@ -140,4 +171,36 @@ class TestAlignVideo:
         assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
         assert int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) == 40
         assert int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 20
+        cap.release()
+
+    def test_align_video_with_pose_path(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+    ):
+        # Arrange
+        video_path = make_custom_video(
+            tmp_path / 'session-01_cuttle-01.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        pose_path = _write_pose_csv(
+            tmp_path / 'pose.csv', n_frames=3, tail=(25.0, 30.0), neck=(95.0, 30.0),
+        )
+        output_dir = tmp_path / 'out'
+
+        # Act
+        video_out_path, csv_out_path = align_video(
+            video_path, output_dir, canonical_height=20, pose_path=pose_path,
+        )
+
+        # Assert
+        assert video_out_path.exists()
+        assert csv_out_path.exists()
+
+        df = pd.read_csv(csv_out_path)
+        assert len(df) == 3
+        assert not df['is_interpolated'].any()
+
+        cap = cv2.VideoCapture(str(video_out_path))
+        assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
         cap.release()

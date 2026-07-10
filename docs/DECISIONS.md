@@ -6,6 +6,54 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Phase 2b pose plumbing: real pose-CSV format, --pose-dir/--pose-path, 0.9 likelihood
+
+**Date:** 2026-07-10
+**Status:** decided, implemented
+
+**Decision:** Consume the pose CSV a pose-estimation model actually writes — the standard
+multi-header format (three header rows: scorer, bodyparts, coords; one data row per
+frame) — rather than inventing a simplified `frame_idx, tail_x, tail_y, neck_x, neck_y`
+schema as originally sketched in `docs/PHASES.md` Phase 2b. `pose.load_pose_predictions`
+selects columns by the `bodyparts` level only (ignoring `scorer`, a model/run-specific
+label), so it works regardless of which pose model produced the file. Interpolate
+(flat-extrapolate at the edges, same convention as `align.interpolate_corners`) over any
+frame where either keypoint's likelihood is below 0.9. `interpolate_pose` trusts the pose
+CSV has exactly one row per video frame (holds for the one real file seen so far) instead
+of taking an explicit frame count to reconcile against, which also lets `align_video` skip
+opening the video up front just to learn its frame count. `cuttle inscribe`/`cuttle
+overlay` gain `--pose-dir` (default
+`results_dir/pose`, looked up per video as `{video_name}.csv`, mirroring the existing
+`--output-dir` pattern) and `--pose-path` (single-video override, mirroring
+`--video-path`); a video with no matching pose file falls back to the Phase 2a PCA path
+with a printed message.
+
+**Why:** Real predictions for session-01/cuttle-01 landed with per-frame likelihoods
+around 0.998-0.999, confirming the format is the pose-estimation tool's native output
+rather than something worth re-deriving. 0.9 is a reasonably strict cutoff given that
+baseline — chosen without yet having seen a real low-confidence frame to calibrate
+against, so it may need revisiting once more sessions' predictions land. The
+`--pose-dir`/`--pose-path` split mirrors the `--output-dir`/`--video-path` pattern already
+used by both commands, so batch runs auto-discover predictions per video while a single
+video can still be pointed at an explicit file.
+
+**Alternatives considered:** a separate `inscribe_rectangle_from_pose` /
+`compute_corner_trajectory_from_pose` entry point mirroring the PCA-based ones —
+rejected, since it would have duplicated the mask-recovery/rotation/seeding/growing/
+corner-mapping logic that's identical in both paths; `tail`/`neck` as optional kwargs on
+the existing functions keeps one implementation with a two-way branch instead.
+
+**Trade-off / known risk:** the 0.9 threshold is currently unvalidated against any
+actual low-confidence frame (all real predictions seen so far are >0.98); revisit once
+more sessions' pose predictions land and some genuinely uncertain frames show up.
+Trusting the pose CSV's row count against the video's frame count (rather than
+reconciling an explicit count) means a mismatch would surface as an `IndexError` in
+`compute_corner_trajectory` rather than a clear error message — acceptable since the one
+real file pairing confirmed an exact match; revisit if that stops holding once more
+sessions land.
+
+---
+
 ## Phase 2b keypoint scheme: tail + neck only, mask-cut over ellipse-fit
 
 **Date:** 2026-07-10

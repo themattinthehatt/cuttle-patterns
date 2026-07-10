@@ -8,6 +8,8 @@ import pytest
 
 from cuttle_patterns.preprocessing.inscribe import (
     body_orientation,
+    body_orientation_signed,
+    cut_mask_at_neck,
     grow_rectangle,
     inscribe_rectangle,
     rect_fully_inside,
@@ -91,6 +93,47 @@ class TestBodyOrientation:
 
         # Assert
         assert abs(angle) % 180 == pytest.approx(90.0, abs=1.0)
+
+
+class TestBodyOrientationSigned:
+    """Test the function body_orientation_signed."""
+
+    def test_body_orientation_signed_midpoint_center(self):
+        # Act
+        cx, cy, _ = body_orientation_signed(tail=(0.0, 0.0), neck=(10.0, 20.0))
+
+        # Assert
+        assert cx == pytest.approx(5.0)
+        assert cy == pytest.approx(10.0)
+
+    def test_body_orientation_signed_neck_to_the_right_is_zero(self):
+        # Act
+        _, _, angle = body_orientation_signed(tail=(0.0, 0.0), neck=(10.0, 0.0))
+
+        # Assert
+        assert angle == pytest.approx(0.0)
+
+    def test_body_orientation_signed_neck_to_the_left_is_180(self):
+        # Act
+        _, _, angle = body_orientation_signed(tail=(10.0, 0.0), neck=(0.0, 0.0))
+
+        # Assert
+        assert abs(angle) == pytest.approx(180.0)
+
+
+class TestCutMaskAtNeck:
+    """Test the function cut_mask_at_neck."""
+
+    def test_cut_mask_at_neck_zeroes_head_side(self):
+        # Arrange
+        mask = np.full((50, 100), 255, dtype=np.uint8)
+
+        # Act
+        cut = cut_mask_at_neck(mask, neck_x=60)
+
+        # Assert
+        assert cut[:, :60].all()
+        assert not cut[:, 60:].any()
 
 
 class TestRotateMaskUpright:
@@ -207,6 +250,37 @@ class TestInscribeRectangle:
 
         # Act
         result = inscribe_rectangle(frame)
+
+        # Assert
+        assert result is None
+
+    def test_inscribe_rectangle_with_pose_avoids_arm_bias(self):
+        # Arrange: a mantle ellipse with a large "arm crown" blob attached at its right
+        # edge (x=280) — PCA over the combined mask is known to straddle the arm side,
+        # which pose-informed cutting at the neck should avoid entirely
+        frame = np.zeros((400, 500), dtype=np.uint8)
+        cv2.ellipse(frame, (200, 200), (80, 40), 0, 0, 360, 100, -1)
+        cv2.rectangle(frame, (280, 150), (450, 250), 100, -1)
+
+        # Act
+        pca_result = inscribe_rectangle(frame)
+        pose_result = inscribe_rectangle(frame, tail=(120.0, 200.0), neck=(280.0, 200.0))
+
+        # Assert: PCA lands in the arm region, pose-informed stays on the mantle side
+        assert pca_result is not None
+        assert pca_result.corners[:, 0].max() > 280
+        assert pose_result is not None
+        assert pose_result.corners[:, 0].max() <= 280
+
+    def test_inscribe_rectangle_with_pose_no_mantle_left_returns_none(self):
+        # Arrange: tail/neck sit well clear of the mask entirely, on the side that
+        # cut_mask_at_neck keeps — so every actual body pixel falls on the discarded
+        # (head/arm) side and nothing is left to size a rectangle from
+        frame = np.zeros((400, 500), dtype=np.uint8)
+        cv2.ellipse(frame, (200, 200), (80, 40), 0, 0, 360, 100, -1)
+
+        # Act
+        result = inscribe_rectangle(frame, tail=(0.0, 200.0), neck=(0.0, 200.0))
 
         # Assert
         assert result is None
