@@ -11,6 +11,9 @@ embedding via BEAST, and interactive tools for exploring the resulting pattern c
 
 ## Setup
 
+Requires the `ffmpeg` binary on `PATH` (e.g. `apt-get install ffmpeg` /
+`brew install ffmpeg`) — `cuttle overlay` shells out to it for H.264-encoded output.
+
 ```bash
 conda create -n cuttle python=3.12
 conda activate cuttle
@@ -92,4 +95,6 @@ it has to compute the CSV itself).
 cuttle overlay
 ```
 
-Writes `results_dir/rectangles/{video_name}_overlay.mp4`.
+Writes `results_dir/rectangles/{video_name}_overlay.mp4`, H.264-encoded (via `ffmpeg`)
+since these are full raw-resolution videos and can otherwise get large; tune size vs.
+quality with `--crf` (lower is higher quality/larger file, default 23).

@@ -23,6 +23,7 @@ dependencies = [
     "pyarrow",
     "pyyaml",
     "scikit-learn (>=1.5.0)",
+    "tqdm",
 ]
 
 [project.scripts]

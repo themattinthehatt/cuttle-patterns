@@ -47,6 +47,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         thresh=0,
         aspect=2.0,
         canonical_height=20,
+        crf=23,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

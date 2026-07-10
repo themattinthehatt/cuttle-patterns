@@ -8,7 +8,7 @@ from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import find_raw_videos
 from cuttle_patterns.preprocessing.align import DEFAULT_CANONICAL_HEIGHT, align_video
 from cuttle_patterns.preprocessing.inscribe import DEFAULT_ASPECT_RATIO, DEFAULT_THRESHOLD
-from cuttle_patterns.preprocessing.overlay import create_overlay_video
+from cuttle_patterns.preprocessing.overlay import DEFAULT_CRF, create_overlay_video
 
 OUTPUT_RELPATH = Path('rectangles')
 POSE_RELPATH = Path('pose')
@@ -81,6 +81,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=DEFAULT_CANONICAL_HEIGHT,
         help='passed to inscribe if {video_name}.csv does not exist yet',
     )
+    parser.add_argument(
+        '--crf',
+        type=int,
+        default=DEFAULT_CRF,
+        help='x264 constant rate factor for the overlay video; lower is higher quality '
+        'and a larger file',
+    )
     parser.set_defaults(handler=cmd_overlay)
 
 
@@ -140,5 +147,5 @@ def cmd_overlay(args: argparse.Namespace) -> None:
 
         overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
         print(f'writing overlay for {video_path}...')
-        create_overlay_video(video_path, csv_path, overlay_path)
+        create_overlay_video(video_path, csv_path, overlay_path, crf=args.crf)
         print(f'  wrote {overlay_path}')
