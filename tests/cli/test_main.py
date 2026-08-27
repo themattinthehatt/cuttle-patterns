@@ -35,8 +35,8 @@ class TestMain:
         data_dir = tmp_path / 'data'
         results_dir = tmp_path / 'results'
         data_dir.mkdir()
-        make_video(data_dir / 'session-01_cuttle-01.mp4', n_frames=10)
-        (data_dir / 'session-01_cuttle-01.txt').write_text('1\n2\n')
+        make_video(data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4', n_frames=10)
+        (data_dir / 'Day1_Tank2_Cuttle1_Resident_black_frames.txt').write_text('1\n2\n')
         monkeypatch.setattr(
             sys,
             'argv',

@@ -6,6 +6,45 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Raw filename scheme: `Day{n}_Tank{m}_Cuttle{k}_{role}`, string session/fish ids
+
+**Date:** 2026-08-27
+**Status:** decided, implemented
+
+**Decision:** Parse raw video/blank-frames filenames as
+`Day{day}_Tank{tank}_Cuttle{n}_{role}_crop.mp4` /
+`Day{day}_Tank{tank}_Cuttle{n}_{role}_black_frames.txt` (`crop`/`Crop` both seen, matched
+case-insensitively), rather than the original `session-{id}_cuttle-{id}.mp4`/`.txt`.
+`session_id` is now the `Day{day}_Tank{tank}` prefix (e.g. `Day1_Tank2`) and `fish_id` is
+the `Cuttle{n}_{role}` suffix (e.g. `Cuttle1_Resident`/`Cuttle2_Intruder`) — both plain
+strings, not the small integers `ingest.py` previously parsed and cast with `int(...)`.
+Since the video and blank-frames filenames now have different suffixes (`_crop`/`_black_
+frames`, not just a different extension on an otherwise-identical stem), `ingest.py`
+rebuilds the blank-frames path from the parsed `session_id`/`fish_id` rather than
+`video_path.with_suffix('.txt')`.
+
+**Why:** Collaborators changed their delivery naming scheme once more sessions started
+landing (confirmed by inspecting the current contents of the raw data drive, which now
+has 38 videos across Day1-4/Tank1-6 instead of the single originally-delivered
+session/fish pair). Only `cuttle_patterns/ingest.py` (the one place that actually parses
+session/fish ids out of a filename, via `FILENAME_PATTERN`) needed changing —
+`preprocessing/align.py`, `overlay.py`, and the CLI commands built on top of them only
+ever use `video_path.stem`/`.name` opaquely for output naming, so they're unaffected by
+the scheme itself.
+
+**Alternatives considered:** keeping `session_id`/`fish_id` as ints by extracting just the
+numeric day/tank/cuttle-number components and dropping the tank/role text — rejected,
+since the role (`Resident`/`Intruder`) isn't derivable from the cuttle number alone (see
+`Day2_Tank5_Cuttle1_Intruder`/`Cuttle2_Resident`, where the usual `Cuttle1_Resident`/
+`Cuttle2_Intruder` pairing is flipped), so it has to be captured, not discarded.
+
+**Trade-off / known risk:** `session_id`/`fish_id` are now strings everywhere downstream
+(manifest, any future code that groups/filters by them) rather than ints — no code beyond
+`ingest.py` depended on the int type as of this change, but new code should not assume
+either column is numeric.
+
+---
+
 ## Rectangle-trajectory smoothing: median and Gaussian, mutually exclusive
 
 **Date:** 2026-07-10

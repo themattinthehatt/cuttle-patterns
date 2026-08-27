@@ -59,10 +59,15 @@ without hardcoded paths.
 
 **Goal:** know exactly what we have once the collaborators' videos land in `data_dir`.
 
-- Raw file naming convention (confirmed): `data_dir/session-{session_id}_cuttle-
-  {fish_id}.mp4` with an accompanying `session-{session_id}_cuttle-{fish_id}.txt` listing
-  blank-frame indices (one integer per line, no header). First delivered example: session
-  1, fish 1 — 512x512, 24 fps, 44,400 frames, 18,068 flagged blank.
+- Raw file naming convention (confirmed, revised — see
+  [DECISIONS.md](DECISIONS.md)): `data_dir/Day{day}_Tank{tank}_Cuttle{n}_{role}_crop.mp4`
+  (`crop`/`Crop` both seen) with an accompanying
+  `Day{day}_Tank{tank}_Cuttle{n}_{role}_black_frames.txt` listing blank-frame indices (one
+  integer per line, no header). `session_id` is the `Day{day}_Tank{tank}` prefix (e.g.
+  `Day1_Tank2`) and `fish_id` is the `Cuttle{n}_{role}` suffix (e.g. `Cuttle1_Resident`) —
+  both strings now, not the small integers of the original single-session delivery.
+  Originally-delivered example (old naming): session 1, fish 1 — 512x512, 24 fps, 44,400
+  frames, 18,068 flagged blank.
 - `cuttle_patterns/ingest.py` builds the manifest: `find_raw_videos` /
   `read_video_info` (via OpenCV) / `read_blank_frame_indices` / `build_manifest`, one row
   per video with `session_id`, `fish_id`, `video_path`, `blank_frames_path`, `n_frames`,
@@ -83,9 +88,11 @@ extract-frames, train, embed, cluster, serve, ...) should follow the same patter
 [DECISIONS.md](DECISIONS.md).
 
 **Open questions:**
-- Only one session/fish pair has been delivered so far (72 total expected); revisit the
-  "~44,000 frames per session" assumption and cross-session resolution/fps consistency
-  once more sessions land.
+- Only one session/fish pair had been delivered under the original naming scheme; many
+  more have since landed under the revised `Day{day}_Tank{tank}_Cuttle{n}_{role}` scheme
+  (38 videos seen across Day1-4, Tank1-6 as of 2026-08-27, out of 72 expected) — revisit
+  the "~44,000 frames per session" assumption and cross-session resolution/fps consistency
+  now that more sessions are available to check against.
 
 ---
 
