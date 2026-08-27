@@ -126,7 +126,9 @@ orchestration in `cuttle_patterns/preprocessing/align.py` and
 - `cuttle overlay [same flags]` — QC tool. For each video, if `{video_name}.csv` doesn't
   exist yet, runs the same inscribe logic to produce it; then draws each frame's
   (interpolated) rectangle on the *raw* frame — green if directly detected, orange if
-  interpolated — and writes `{output_dir}/{video_name}_overlay.mp4`.
+  interpolated — plus, if a matching pose CSV is found, each keypoint with likelihood
+  >= 0.9 (bright pink, white border; lower-confidence keypoints are left undrawn rather
+  than interpolated) — and writes `{output_dir}/{video_name}_overlay.mp4`.
 
 Tests: `tests/preprocessing/{test_inscribe,test_align,test_overlay}.py` and
 `tests/cli/{test_cmd_inscribe,test_cmd_overlay}.py`. There's also a standalone

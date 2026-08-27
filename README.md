@@ -105,6 +105,12 @@ exists for a video; otherwise runs the same detection first (accepting the same
 `--pose-dir`/`--pose-path`/`--thresh`/`--aspect` flags as `cuttle inscribe`, used only if
 it has to compute the CSV itself).
 
+If a matching pose-prediction CSV is found (`--pose-dir`/`--pose-path`, same lookup as
+`cuttle inscribe`; see [docs/pose_estimation.md](docs/pose_estimation.md)), each frame's
+tail/neck keypoints are also drawn on top of the rectangle — bright pink with a white
+border — but only where the raw prediction's likelihood is >= 0.9; lower-confidence
+keypoints are left undrawn rather than interpolated.
+
 ```bash
 cuttle overlay
 ```

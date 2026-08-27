@@ -59,8 +59,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         metavar='PATH',
         help=f'directory containing {{video_name}}.csv pose predictions (see '
-        f'cuttle_patterns.preprocessing.pose), passed to inscribe if {{video_name}}.csv '
-        f'does not exist yet; defaults to results_dir/{POSE_RELPATH}',
+        f'cuttle_patterns.preprocessing.pose); keypoints are drawn on the overlay, and '
+        f'this is also passed to inscribe if {{video_name}}.csv does not exist yet; '
+        f'defaults to results_dir/{POSE_RELPATH}',
     )
     parser.add_argument(
         '--pose-path',
@@ -152,15 +153,16 @@ def cmd_overlay(args: argparse.Namespace) -> None:
 
     for video_path in video_paths:
         csv_path = output_dir / f'{video_path.stem}.csv'
-        if not csv_path.exists():
-            pose_path = (
-                args.pose_path if args.pose_path is not None
-                else pose_dir / f'{video_path.stem}.csv'
-            )
-            if not pose_path.exists():
-                print(f'  no pose predictions at {pose_path}, using PCA-based inscription')
-                pose_path = None
 
+        pose_path = (
+            args.pose_path if args.pose_path is not None
+            else pose_dir / f'{video_path.stem}.csv'
+        )
+        if not pose_path.exists():
+            print(f'  no pose predictions at {pose_path}')
+            pose_path = None
+
+        if not csv_path.exists():
             print(f'{csv_path} not found, running inscribe for {video_path}...')
             align_video(
                 video_path,
@@ -175,5 +177,7 @@ def cmd_overlay(args: argparse.Namespace) -> None:
 
         overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
         print(f'writing overlay for {video_path}...')
-        create_overlay_video(video_path, csv_path, overlay_path, crf=args.crf)
+        create_overlay_video(
+            video_path, csv_path, overlay_path, crf=args.crf, pose_path=pose_path,
+        )
         print(f'  wrote {overlay_path}')
