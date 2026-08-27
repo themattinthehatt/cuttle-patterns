@@ -6,6 +6,37 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## `scripts/` directory: working scripts not yet promoted to `cuttle_patterns/` + the CLI
+
+**Date:** 2026-08-27
+**Status:** decided, implemented
+
+**Decision:** New top-level `scripts/` directory for code that's integral to the project
+but not yet crystallized enough to live in `cuttle_patterns/` + the `cuttle` CLI (tested
+library functions, `cmd_*.py` argparse wiring — see the CLI-structure entry below) — e.g.
+`scripts/pose_plot_outliers.py`, which ranks candidate frames for pose-labeling by
+cross-model prediction disagreement (see [pose_estimation.md](pose_estimation.md)).
+Distinct from the existing `scratch/` (one-off, throwaway single-frame visualization,
+e.g. `scratch/run_inscribe_v1.py` — see Phase 2a in [PHASES.md](PHASES.md)): `scripts/`
+is for things meant to be run repeatedly and iterated on as real tooling, just without
+the argparse/test/docstring overhead of a full `cuttle` subcommand yet.
+
+**Why:** `scratch/` already had a settled meaning (throwaway single-frame experiments
+predating the CLI) that doesn't fit ongoing active-learning/QC tooling meant to be rerun
+as new model predictions land. A separate directory keeps that distinction legible
+instead of overloading `scratch/`'s existing meaning.
+
+**Alternatives considered:** folding this into `scratch/` — rejected to keep the
+"throwaway" vs. "real but not yet crystallized" distinction visible; promoting straight
+into `cuttle_patterns/` + a `cuttle` subcommand — rejected as premature before the
+approach (e.g. the disagreement-score formula, output format) has been used for real.
+
+**Trade-off / known risk:** no enforced graduation path yet — a script could linger in
+`scripts/` indefinitely instead of being promoted once it stabilizes. Acceptable for now;
+revisit if `scripts/` accumulates content that's clearly proven out.
+
+---
+
 ## Raw filename scheme: `Day{n}_Tank{m}_Cuttle{k}_{role}`, string session/fish ids
 
 **Date:** 2026-08-27
