@@ -88,7 +88,7 @@ class TestCmdOverlay:
         results_dir = tmp_path / 'results'
         data_dir.mkdir()
         make_custom_video(
-            data_dir / 'session-01_cuttle-01.mp4',
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
             [_blob_frame(), _blob_frame(), _blob_frame()],
         )
         args = _make_args(data_dir=data_dir, results_dir=results_dir)
@@ -100,8 +100,8 @@ class TestCmdOverlay:
         output_dir = results_dir / 'rectangles'
         out = capsys.readouterr().out
         assert 'not found, running inscribe' in out
-        assert (output_dir / 'session-01_cuttle-01.csv').exists()
-        assert (output_dir / 'session-01_cuttle-01_overlay.mp4').exists()
+        assert (output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.csv').exists()
+        assert (output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop_overlay.mp4').exists()
 
     def test_cmd_overlay_reuses_existing_csv(
         self,
@@ -114,7 +114,7 @@ class TestCmdOverlay:
         results_dir = tmp_path / 'results'
         data_dir.mkdir()
         video_path = make_custom_video(
-            data_dir / 'session-01_cuttle-01.mp4',
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
             [_blob_frame(), _blob_frame(), _blob_frame()],
         )
         output_dir = results_dir / 'rectangles'
@@ -127,7 +127,7 @@ class TestCmdOverlay:
         # Assert
         out = capsys.readouterr().out
         assert 'not found, running inscribe' not in out
-        assert (output_dir / 'session-01_cuttle-01_overlay.mp4').exists()
+        assert (output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop_overlay.mp4').exists()
 
     def test_cmd_overlay_uses_matching_pose_file(
         self,
@@ -140,13 +140,13 @@ class TestCmdOverlay:
         results_dir = tmp_path / 'results'
         data_dir.mkdir()
         make_custom_video(
-            data_dir / 'session-01_cuttle-01.mp4',
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
             [_blob_frame(), _blob_frame(), _blob_frame()],
         )
         pose_dir = results_dir / 'pose'
         pose_dir.mkdir(parents=True)
         _write_pose_csv(
-            pose_dir / 'session-01_cuttle-01.csv', n_frames=3,
+            pose_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.csv', n_frames=3,
             tail=(25.0, 30.0), neck=(95.0, 30.0),
         )
         args = _make_args(data_dir=data_dir, results_dir=results_dir)
@@ -157,7 +157,8 @@ class TestCmdOverlay:
         # Assert
         out = capsys.readouterr().out
         assert 'no pose predictions' not in out
-        assert (results_dir / 'rectangles' / 'session-01_cuttle-01_overlay.mp4').exists()
+        overlay_path = results_dir / 'rectangles' / 'Day1_Tank2_Cuttle1_Resident_Crop_overlay.mp4'
+        assert overlay_path.exists()
 
     def test_cmd_overlay_falls_back_to_pca_when_pose_missing(
         self,
@@ -170,7 +171,7 @@ class TestCmdOverlay:
         results_dir = tmp_path / 'results'
         data_dir.mkdir()
         make_custom_video(
-            data_dir / 'session-01_cuttle-01.mp4',
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
             [_blob_frame(), _blob_frame(), _blob_frame()],
         )
         args = _make_args(data_dir=data_dir, results_dir=results_dir)
@@ -181,7 +182,8 @@ class TestCmdOverlay:
         # Assert
         out = capsys.readouterr().out
         assert 'no pose predictions' in out
-        assert (results_dir / 'rectangles' / 'session-01_cuttle-01_overlay.mp4').exists()
+        overlay_path = results_dir / 'rectangles' / 'Day1_Tank2_Cuttle1_Resident_Crop_overlay.mp4'
+        assert overlay_path.exists()
 
     def test_cmd_overlay_smoothing_flags_are_mutually_exclusive(
         self,

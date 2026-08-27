@@ -42,9 +42,9 @@ The first few steps after `cuttle setup`, run in order. Every subcommand reads
 
 ### 1. `cuttle ingest`
 
-Scans `data_dir` for raw `session-{id}_cuttle-{id}.mp4`/`.txt` pairs and writes a
-manifest of what's there (frame counts, fps, resolution, flagged-blank counts) to
-`results_dir/manifests/ingest.parquet`.
+Scans `data_dir` for raw `Day{day}_Tank{tank}_Cuttle{n}_{role}_crop.mp4`/
+`_black_frames.txt` pairs and writes a manifest of what's there (frame counts, fps,
+resolution, flagged-blank counts) to `results_dir/manifests/ingest.parquet`.
 
 ```bash
 cuttle ingest
@@ -88,8 +88,8 @@ To process one video at a time (e.g. while iterating on `--thresh`/`--aspect`), 
 `--video-path`, optionally paired with an explicit `--pose-path`:
 
 ```bash
-cuttle inscribe --video-path /path/to/session-01_cuttle-01.mp4 \
-  --pose-path /path/to/session-01_cuttle-01_pose.csv
+cuttle inscribe --video-path /path/to/Day1_Tank2_Cuttle1_Resident_Crop.mp4 \
+  --pose-path /path/to/Day1_Tank2_Cuttle1_Resident_Crop_pose.csv
 ```
 
 ### 3. `cuttle overlay` (optional QC)

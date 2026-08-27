@@ -80,7 +80,7 @@ class TestCmdInscribe:
         results_dir = tmp_path / 'results'
         data_dir.mkdir()
         make_custom_video(
-            data_dir / 'session-01_cuttle-01.mp4',
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
             [_blob_frame(), _blob_frame(), _blob_frame()],
         )
         args = argparse.Namespace(
@@ -102,8 +102,8 @@ class TestCmdInscribe:
 
         # Assert
         output_dir = results_dir / 'rectangles'
-        assert (output_dir / 'session-01_cuttle-01.mp4').exists()
-        assert (output_dir / 'session-01_cuttle-01.csv').exists()
+        assert (output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4').exists()
+        assert (output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.csv').exists()
         out = capsys.readouterr().out
         assert 'processing' in out
         assert 'no pose predictions' in out
@@ -119,13 +119,13 @@ class TestCmdInscribe:
         results_dir = tmp_path / 'results'
         data_dir.mkdir()
         make_custom_video(
-            data_dir / 'session-01_cuttle-01.mp4',
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
             [_blob_frame(), _blob_frame(), _blob_frame()],
         )
         pose_dir = results_dir / 'pose'
         pose_dir.mkdir(parents=True)
         _write_pose_csv(
-            pose_dir / 'session-01_cuttle-01.csv', n_frames=3,
+            pose_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.csv', n_frames=3,
             tail=(25.0, 30.0), neck=(95.0, 30.0),
         )
         args = argparse.Namespace(
@@ -147,7 +147,7 @@ class TestCmdInscribe:
 
         # Assert
         output_dir = results_dir / 'rectangles'
-        assert (output_dir / 'session-01_cuttle-01.mp4').exists()
+        assert (output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4').exists()
         out = capsys.readouterr().out
         assert 'no pose predictions' not in out
 

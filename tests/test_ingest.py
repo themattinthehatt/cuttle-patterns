@@ -19,8 +19,8 @@ class TestFindRawVideos:
 
     def test_find_raw_videos_success(self, tmp_path: Path, make_video: Callable):
         # Arrange
-        make_video(tmp_path / 'session-01_cuttle-01.mp4')
-        make_video(tmp_path / 'session-01_cuttle-02.mp4')
+        make_video(tmp_path / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4')
+        make_video(tmp_path / 'Day1_Tank2_Cuttle2_Intruder_Crop.mp4')
         (tmp_path / 'unrelated.mp4').write_bytes(b'')
 
         # Act
@@ -28,8 +28,8 @@ class TestFindRawVideos:
 
         # Assert
         assert [v.name for v in videos] == [
-            'session-01_cuttle-01.mp4',
-            'session-01_cuttle-02.mp4',
+            'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
+            'Day1_Tank2_Cuttle2_Intruder_Crop.mp4',
         ]
 
     def test_find_raw_videos_missing_dir(self, tmp_path: Path):
@@ -99,26 +99,42 @@ class TestBuildManifest:
 
     def test_build_manifest_success(self, tmp_path: Path, make_video: Callable):
         # Arrange
-        make_video(tmp_path / 'session-01_cuttle-01.mp4', n_frames=10)
-        (tmp_path / 'session-01_cuttle-01.txt').write_text('1\n2\n3\n')
-        make_video(tmp_path / 'session-01_cuttle-02.mp4', n_frames=10)
-        (tmp_path / 'session-01_cuttle-02.txt').write_text('4\n')
+        make_video(tmp_path / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4', n_frames=10)
+        (tmp_path / 'Day1_Tank2_Cuttle1_Resident_black_frames.txt').write_text('1\n2\n3\n')
+        make_video(tmp_path / 'Day1_Tank2_Cuttle2_Intruder_Crop.mp4', n_frames=10)
+        (tmp_path / 'Day1_Tank2_Cuttle2_Intruder_black_frames.txt').write_text('4\n')
 
         # Act
         manifest = build_manifest(tmp_path)
 
         # Assert
         assert len(manifest) == 2
-        assert set(manifest['session_id']) == {1}
-        assert set(manifest['fish_id']) == {1, 2}
-        assert manifest.loc[manifest['fish_id'] == 1, 'n_blank_frames'].item() == 3
-        assert manifest.loc[manifest['fish_id'] == 2, 'n_blank_frames'].item() == 1
+        assert set(manifest['session_id']) == {'Day1_Tank2'}
+        assert set(manifest['fish_id']) == {'Cuttle1_Resident', 'Cuttle2_Intruder'}
+        assert manifest.loc[
+            manifest['fish_id'] == 'Cuttle1_Resident', 'n_blank_frames'
+        ].item() == 3
+        assert manifest.loc[
+            manifest['fish_id'] == 'Cuttle2_Intruder', 'n_blank_frames'
+        ].item() == 1
+
+    def test_build_manifest_lowercase_crop_suffix(self, tmp_path: Path, make_video: Callable):
+        # Arrange
+        make_video(tmp_path / 'Day2_Tank1_Cuttle1_Resident_crop.mp4', n_frames=10)
+
+        # Act
+        manifest = build_manifest(tmp_path)
+
+        # Assert
+        assert len(manifest) == 1
+        assert manifest.loc[0, 'session_id'] == 'Day2_Tank1'
+        assert manifest.loc[0, 'fish_id'] == 'Cuttle1_Resident'
 
     def test_build_manifest_missing_blank_frames_file(
         self, tmp_path: Path, make_video: Callable,
     ):
         # Arrange
-        make_video(tmp_path / 'session-01_cuttle-01.mp4', n_frames=10)
+        make_video(tmp_path / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4', n_frames=10)
 
         # Act
         manifest = build_manifest(tmp_path)

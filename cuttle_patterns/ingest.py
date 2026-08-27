@@ -1,8 +1,11 @@
 """Build a manifest of raw session/fish videos and their blank-frame annotations.
 
-Raw videos live directly under `data_dir` as `session-{session_id}_cuttle-{fish_id}.mp4`,
-each with an accompanying `session-{session_id}_cuttle-{fish_id}.txt` listing the frame
-indices (one per line) that the collaborators flagged as blank.
+Raw videos live directly under `data_dir` as
+`Day{day}_Tank{tank}_Cuttle{n}_{role}_crop.mp4` (`crop`/`Crop` both seen), each with an
+accompanying `Day{day}_Tank{tank}_Cuttle{n}_{role}_black_frames.txt` listing the frame
+indices (one per line) that the collaborators flagged as blank. `session_id` is the
+`Day{day}_Tank{tank}` prefix (e.g. `Day1_Tank2`) and `fish_id` is the `Cuttle{n}_{role}`
+suffix (e.g. `Cuttle1_Resident`) — both strings, not the small integers used previously.
 """
 
 import logging
@@ -15,7 +18,9 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-FILENAME_PATTERN = re.compile(r'^session-(?P<session_id>\d+)_cuttle-(?P<fish_id>\d+)$')
+FILENAME_PATTERN = re.compile(
+    r'^(?P<session_id>Day\d+_Tank\d+)_(?P<fish_id>Cuttle\d+_[A-Za-z]+)_[Cc]rop$'
+)
 
 MANIFEST_RELPATH = Path('manifests') / 'ingest.parquet'
 
@@ -41,7 +46,8 @@ def find_raw_videos(raw_dir: Path) -> list[Path]:
     """Find raw session/fish video files in a directory.
 
     Args:
-        raw_dir: directory containing `session-{id}_cuttle-{id}.mp4` files.
+        raw_dir: directory containing `Day{day}_Tank{tank}_Cuttle{n}_{role}_crop.mp4`
+            files.
 
     Returns:
         sorted list of video paths.
@@ -51,7 +57,7 @@ def find_raw_videos(raw_dir: Path) -> list[Path]:
     """
     if not raw_dir.is_dir():
         raise FileNotFoundError(f'raw video directory does not exist: {raw_dir}')
-    return sorted(raw_dir.glob('session-*_cuttle-*.mp4'))
+    return sorted(raw_dir.glob('Day*_Tank*_Cuttle*_*.mp4'))
 
 
 def read_video_info(video_path: Path) -> VideoInfo:
@@ -100,7 +106,8 @@ def build_manifest(raw_dir: Path) -> pd.DataFrame:
     """Build a manifest of raw videos, their metadata, and blank-frame counts.
 
     Args:
-        raw_dir: directory containing raw `session-{id}_cuttle-{id}.mp4`/`.txt` file
+        raw_dir: directory containing raw
+            `Day{day}_Tank{tank}_Cuttle{n}_{role}_crop.mp4`/`_black_frames.txt` file
             pairs.
 
     Returns:
@@ -115,7 +122,13 @@ def build_manifest(raw_dir: Path) -> pd.DataFrame:
             logger.warning(f'skipping file with unexpected name: {video_path}')
             continue
 
-        blank_frames_path = video_path.with_suffix('.txt')
+        session_id = match['session_id']
+        fish_id = match['fish_id']
+
+        # the black-frames txt file uses a different suffix than the video, so its name
+        # has to be rebuilt from the parsed session/fish ids rather than swapping the
+        # video path's extension
+        blank_frames_path = video_path.parent / f'{session_id}_{fish_id}_black_frames.txt'
         blank_frame_indices = None
         if blank_frames_path.exists():
             blank_frame_indices = read_blank_frame_indices(blank_frames_path)
@@ -133,8 +146,8 @@ def build_manifest(raw_dir: Path) -> pd.DataFrame:
         has_blank_frames = blank_frame_indices is not None
         rows.append(
             {
-                'session_id': int(match['session_id']),
-                'fish_id': int(match['fish_id']),
+                'session_id': session_id,
+                'fish_id': fish_id,
                 'video_path': str(video_path),
                 'blank_frames_path': str(blank_frames_path) if has_blank_frames else None,
                 'n_frames': video_info.n_frames,
