@@ -55,6 +55,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help='process a single video instead of every raw video in data_dir',
     )
     parser.add_argument(
+        '--skip-existing',
+        action='store_true',
+        help='skip a video if its {video_name}_overlay.mp4 already exists in output_dir',
+    )
+    parser.add_argument(
         '--pose-dir',
         type=Path,
         metavar='PATH',
@@ -152,6 +157,11 @@ def cmd_overlay(args: argparse.Namespace) -> None:
             return
 
     for video_path in video_paths:
+        overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
+        if args.skip_existing and overlay_path.exists():
+            print(f'skipping {video_path} ({overlay_path} already exists)')
+            continue
+
         csv_path = output_dir / f'{video_path.stem}.csv'
 
         pose_path = (
@@ -175,7 +185,6 @@ def cmd_overlay(args: argparse.Namespace) -> None:
                 smoothing_sigma=args.smoothing_sigma,
             )
 
-        overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
         print(f'writing overlay for {video_path}...')
         create_overlay_video(
             video_path, csv_path, overlay_path, crf=args.crf, pose_path=pose_path,

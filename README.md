@@ -96,6 +96,10 @@ cuttle inscribe --video-path /path/to/Day1_Tank2_Cuttle1_Resident_Crop.mp4 \
   --pose-path /path/to/Day1_Tank2_Cuttle1_Resident_Crop_pose.csv
 ```
 
+Pass `--skip-existing` to leave a video alone (no re-inscription) if its
+`{video_name}.mp4`/`.csv` already exist in `output_dir`, so a batch run can be safely
+re-run over a directory that's only partially processed.
+
 ### 3. `cuttle overlay` (optional QC)
 
 Draws each frame's (interpolated) rectangle on top of the corresponding *raw* frame —
@@ -117,4 +121,6 @@ cuttle overlay
 
 Writes `results_dir/rectangles/{video_name}_overlay.mp4`, H.264-encoded (via `ffmpeg`)
 since these are full raw-resolution videos and can otherwise get large; tune size vs.
-quality with `--crf` (lower is higher quality/larger file, default 28).
+quality with `--crf` (lower is higher quality/larger file, default 28). As with `cuttle
+inscribe`, pass `--skip-existing` to leave a video's `{video_name}_overlay.mp4` alone if
+it already exists, rather than re-encoding it.

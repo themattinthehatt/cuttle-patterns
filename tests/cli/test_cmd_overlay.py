@@ -44,6 +44,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         results_dir=None,
         output_dir=None,
         video_path=None,
+        skip_existing=False,
         pose_dir=None,
         pose_path=None,
         thresh=0,
@@ -184,6 +185,35 @@ class TestCmdOverlay:
         assert 'no pose predictions' in out
         overlay_path = results_dir / 'rectangles' / 'Day1_Tank2_Cuttle1_Resident_Crop_overlay.mp4'
         assert overlay_path.exists()
+
+    def test_cmd_overlay_skip_existing(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+        capsys: pytest.CaptureFixture,
+    ):
+        # Arrange: the overlay mp4 already exists for the one video in data_dir
+        data_dir = tmp_path / 'data'
+        results_dir = tmp_path / 'results'
+        data_dir.mkdir()
+        make_custom_video(
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        output_dir = results_dir / 'rectangles'
+        output_dir.mkdir(parents=True)
+        overlay_path = output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop_overlay.mp4'
+        overlay_path.write_bytes(b'existing')
+        args = _make_args(data_dir=data_dir, results_dir=results_dir, skip_existing=True)
+
+        # Act
+        cmd_overlay(args)
+
+        # Assert: the overlay was left untouched and inscribe/overlay never ran
+        assert overlay_path.read_bytes() == b'existing'
+        out = capsys.readouterr().out
+        assert 'skipping' in out
+        assert 'writing overlay' not in out
 
     def test_cmd_overlay_smoothing_flags_are_mutually_exclusive(
         self,
