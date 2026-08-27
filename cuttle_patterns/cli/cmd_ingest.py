@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import MANIFEST_RELPATH, build_manifest
 
@@ -17,6 +18,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         'ingest',
         help='scan raw videos and build a manifest of sessions/fish/frame counts',
+        formatter_class=DefaultsHelpFormatter,
     )
     parser.add_argument(
         '--data-dir',

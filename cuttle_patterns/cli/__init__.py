@@ -20,3 +20,19 @@ See `cmd_ingest.py` (data-processing command backed by `cuttle_patterns/ingest.p
 `cmd_setup.py` (interactive prompts, no backing module) for two working examples of this
 pattern.
 """
+
+import argparse
+
+
+class DefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+    """Append '(default: ...)' to help text, except for args defaulting to None.
+
+    A `None` default (e.g. `--data-dir`, which falls back to the config file rather than
+    a literal value) isn't worth surfacing as '(default: None)'; every other default
+    (numeric, bool, ...) is shown as usual.
+    """
+
+    def _get_help_string(self, action: argparse.Action) -> str:
+        if action.default is None:
+            return action.help
+        return super()._get_help_string(action)

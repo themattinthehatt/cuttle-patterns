@@ -5,6 +5,8 @@ import importlib
 import logging
 from pathlib import Path
 
+from cuttle_patterns.cli import DefaultsHelpFormatter
+
 
 def main() -> None:
     """Entry point for the cuttle-patterns CLI."""
@@ -16,6 +18,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog='cuttle',
         description='Cuttlefish pattern analysis pipeline.',
+        formatter_class=DefaultsHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest='command', metavar='command')
     subparsers.required = True

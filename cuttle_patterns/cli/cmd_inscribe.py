@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import find_raw_videos
 from cuttle_patterns.preprocessing.align import (
@@ -27,6 +28,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         'inscribe',
         help='inscribe egocentric rectangles and write aligned crop videos',
+        formatter_class=DefaultsHelpFormatter,
     )
     parser.add_argument(
         '--data-dir',
