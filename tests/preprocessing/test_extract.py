@@ -8,13 +8,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cuttle_patterns.preprocessing.align import CORNER_COLUMNS
 from cuttle_patterns.preprocessing.extract import (
     build_candidate_frame_idxs,
     build_extraction_manifest,
     compute_filtered_frame_mask,
+    compute_small_rectangle_mask,
     extract_video_frames,
     select_frame_idxs_kmeans_restricted,
 )
+from cuttle_patterns.preprocessing.pose import load_pose_predictions
 
 
 def _write_pose_csv(path: Path, likelihoods: list[float]) -> Path:
@@ -29,6 +32,50 @@ def _write_pose_csv(path: Path, likelihoods: list[float]) -> Path:
     data = [[0.0, 0.0, lk, 0.0, 0.0, lk] for lk in likelihoods]
     pd.DataFrame(data, columns=columns).to_csv(path)
     return path
+
+
+def _write_pose_csv_xy(path: Path, rows: list[dict]) -> Path:
+    # like _write_pose_csv, but with explicit per-frame tail/neck xy, for tests that
+    # care about neck-tail distance
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ('m', 'neck', 'x'), ('m', 'neck', 'y'), ('m', 'neck', 'likelihood'),
+            ('m', 'tail', 'x'), ('m', 'tail', 'y'), ('m', 'tail', 'likelihood'),
+        ],
+        names=['scorer', 'bodyparts', 'coords'],
+    )
+    data = [
+        [row['neck_x'], row['neck_y'], row['neck_likelihood'],
+         row['tail_x'], row['tail_y'], row['tail_likelihood']]
+        for row in rows
+    ]
+    pd.DataFrame(data, columns=columns).to_csv(path)
+    return path
+
+
+def _write_rect_csv(path: Path, corners_per_frame: list[tuple]) -> Path:
+    # corners_per_frame: list of (tl, tr, br, bl), each an (x, y) tuple
+    rows = []
+    for idx, (tl, tr, br, bl) in enumerate(corners_per_frame):
+        rows.append({
+            'frame_idx': idx,
+            'corner_tl_x': tl[0], 'corner_tl_y': tl[1],
+            'corner_tr_x': tr[0], 'corner_tr_y': tr[1],
+            'corner_br_x': br[0], 'corner_br_y': br[1],
+            'corner_bl_x': bl[0], 'corner_bl_y': bl[1],
+            'is_interpolated': False,
+        })
+    pd.DataFrame(rows, columns=['frame_idx', *CORNER_COLUMNS, 'is_interpolated']).to_csv(
+        path, index=False,
+    )
+    return path
+
+
+def _uniform_rect_corners(
+    n_frames: int, long_edge: float = 100.0, short_edge: float = 20.0,
+) -> list[tuple]:
+    corners = ((0.0, 0.0), (long_edge, 0.0), (long_edge, short_edge), (0.0, short_edge))
+    return [corners] * n_frames
 
 
 def _make_ramp_video(make_custom_video: Callable, path: Path, n_frames: int = 12) -> Path:
@@ -75,6 +122,80 @@ class TestComputeFilteredFrameMask:
 
         # Assert
         assert list(mask) == [False, False, True, False]
+
+    def test_marks_small_rectangle_frames_when_rect_csv_path_given(self, tmp_path: Path):
+        # Arrange: long edge 10, short edge 2; frame 0's neck-tail distance (100) makes
+        # the rectangle too small, frames 1-2's distance (15) doesn't
+        rect_path = _write_rect_csv(
+            tmp_path / 'rect.csv', _uniform_rect_corners(3, long_edge=10.0, short_edge=2.0),
+        )
+        pose_path = _write_pose_csv_xy(tmp_path / 'pose.csv', [
+            {'tail_x': 0.0, 'tail_y': 0.0, 'tail_likelihood': 0.99,
+             'neck_x': 100.0, 'neck_y': 0.0, 'neck_likelihood': 0.99},
+            {'tail_x': 0.0, 'tail_y': 0.0, 'tail_likelihood': 0.99,
+             'neck_x': 15.0, 'neck_y': 0.0, 'neck_likelihood': 0.99},
+            {'tail_x': 0.0, 'tail_y': 0.0, 'tail_likelihood': 0.99,
+             'neck_x': 15.0, 'neck_y': 0.0, 'neck_likelihood': 0.99},
+        ])
+
+        # Act
+        mask = compute_filtered_frame_mask(3, [], pose_path, rect_path)
+
+        # Assert
+        assert list(mask) == [True, False, False]
+
+    def test_rect_csv_path_ignored_without_pose_path(self, tmp_path: Path):
+        # Arrange: a degenerate (zero-size) rectangle would always be "small" if checked
+        rect_path = _write_rect_csv(
+            tmp_path / 'rect.csv', _uniform_rect_corners(3, long_edge=0.0, short_edge=0.0),
+        )
+
+        # Act
+        mask = compute_filtered_frame_mask(3, [], pose_path=None, rect_csv_path=rect_path)
+
+        # Assert
+        assert list(mask) == [False, False, False]
+
+
+class TestComputeSmallRectangleMask:
+    """Test the function compute_small_rectangle_mask."""
+
+    def test_flags_small_rectangle_only_when_likelihood_ok(self, tmp_path: Path):
+        # Arrange: long edge 10, short edge 2
+        rect_path = _write_rect_csv(
+            tmp_path / 'rect.csv', _uniform_rect_corners(3, long_edge=10.0, short_edge=2.0),
+        )
+        pose_path = _write_pose_csv_xy(tmp_path / 'pose.csv', [
+            # distance 100: 10 < 0.5 * 100 -> flagged
+            {'tail_x': 0.0, 'tail_y': 0.0, 'tail_likelihood': 0.99,
+             'neck_x': 100.0, 'neck_y': 0.0, 'neck_likelihood': 0.99},
+            # distance 15: 10 is not < 0.5 * 15 (7.5) -> not flagged
+            {'tail_x': 0.0, 'tail_y': 0.0, 'tail_likelihood': 0.99,
+             'neck_x': 15.0, 'neck_y': 0.0, 'neck_likelihood': 0.99},
+            # distance 100 again, but likelihood too low -> not flagged
+            {'tail_x': 0.0, 'tail_y': 0.0, 'tail_likelihood': 0.1,
+             'neck_x': 100.0, 'neck_y': 0.0, 'neck_likelihood': 0.1},
+        ])
+        pose_df = load_pose_predictions(pose_path)
+
+        # Act
+        mask = compute_small_rectangle_mask(rect_path, pose_df, ratio_thresh=0.5)
+
+        # Assert
+        assert list(mask) == [True, False, False]
+
+    def test_raises_on_length_mismatch(self, tmp_path: Path):
+        # Arrange
+        rect_path = _write_rect_csv(tmp_path / 'rect.csv', _uniform_rect_corners(2))
+        pose_path = _write_pose_csv_xy(tmp_path / 'pose.csv', [
+            {'tail_x': 0.0, 'tail_y': 0.0, 'tail_likelihood': 0.99,
+             'neck_x': 1.0, 'neck_y': 0.0, 'neck_likelihood': 0.99},
+        ])
+        pose_df = load_pose_predictions(pose_path)
+
+        # Act & Assert
+        with pytest.raises(ValueError, match='expected one row per video frame'):
+            compute_small_rectangle_mask(rect_path, pose_df)
 
 
 class TestBuildCandidateFrameIdxs:
@@ -168,13 +289,16 @@ class TestExtractVideoFrames:
     ):
         # Arrange
         video_path = _make_ramp_video(make_custom_video, tmp_path / 'clip.mp4', n_frames=8)
-        pose_path = _write_pose_csv(tmp_path / 'clip.csv', [0.99] * 8)
+        pose_path = _write_pose_csv(tmp_path / 'clip_pose.csv', [0.99] * 8)
+        rect_path = _write_rect_csv(
+            tmp_path / 'clip_rect.csv', _uniform_rect_corners(8, long_edge=50.0, short_edge=10.0),
+        )
         output_dir = tmp_path / 'beast_frames'
 
         # Act
         save_dir, selected_idxs = extract_video_frames(
             video_path, output_dir, blank_frame_idxs=[], pose_path=pose_path,
-            frames_per_video=3,
+            rect_csv_path=rect_path, frames_per_video=3,
         )
 
         # Assert

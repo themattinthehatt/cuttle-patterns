@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from cuttle_patterns.cli.cmd_extract import cmd_extract
+from cuttle_patterns.preprocessing.align import CORNER_COLUMNS
 
 
 def _raise_file_not_found() -> None:
@@ -25,6 +26,25 @@ def _write_pose_csv(path: Path, n_frames: int, likelihood: float = 0.99) -> Path
     )
     data = [[0.0, 0.0, likelihood, 0.0, 0.0, likelihood]] * n_frames
     pd.DataFrame(data, columns=columns).to_csv(path)
+    return path
+
+
+def _write_rect_csv(
+    path: Path, n_frames: int, long_edge: float = 50.0, short_edge: float = 10.0,
+) -> Path:
+    # a single uniform (non-degenerate) rectangle repeated for every frame; paired with
+    # _write_pose_csv's degenerate tail==neck==(0,0) keypoints, so it never trips the
+    # small-rectangle filter unless a test wants it to
+    corners = {
+        'corner_tl_x': 0.0, 'corner_tl_y': 0.0,
+        'corner_tr_x': long_edge, 'corner_tr_y': 0.0,
+        'corner_br_x': long_edge, 'corner_br_y': short_edge,
+        'corner_bl_x': 0.0, 'corner_bl_y': short_edge,
+    }
+    df = pd.DataFrame([corners] * n_frames, columns=CORNER_COLUMNS)
+    df.insert(0, 'frame_idx', range(n_frames))
+    df['is_interpolated'] = False
+    df.to_csv(path, index=False)
     return path
 
 
@@ -88,6 +108,7 @@ class TestCmdExtract:
         stem = 'Day1_Tank2_Cuttle1_Resident_Crop'
         _make_ramp_video(make_custom_video, input_dir / f'{stem}.mp4', n_frames=8)
         _write_pose_csv(pose_dir / f'{stem}.csv', n_frames=8)
+        _write_rect_csv(input_dir / f'{stem}.csv', n_frames=8)
         (data_dir / 'Day1_Tank2_Cuttle1_Resident_black_frames.txt').write_text('3\n')
 
         args = _make_args(data_dir=data_dir, results_dir=results_dir, pose_dir=pose_dir)
@@ -130,6 +151,7 @@ class TestCmdExtract:
         _make_ramp_video(make_custom_video, input_dir / f'{stem}.mp4', n_frames=8)
         _make_ramp_video(make_custom_video, input_dir / f'{stem}_overlay.mp4', n_frames=8)
         _write_pose_csv(pose_dir / f'{stem}.csv', n_frames=8)
+        _write_rect_csv(input_dir / f'{stem}.csv', n_frames=8)
 
         args = _make_args(data_dir=data_dir, results_dir=results_dir, pose_dir=pose_dir)
 
@@ -225,6 +247,7 @@ class TestCmdExtract:
         stem = 'Day1_Tank2_Cuttle1_Resident_Crop'
         _make_ramp_video(make_custom_video, input_dir / f'{stem}.mp4', n_frames=8)
         _write_pose_csv(pose_dir / f'{stem}.csv', n_frames=8)
+        _write_rect_csv(input_dir / f'{stem}.csv', n_frames=8)
 
         args = _make_args(data_dir=data_dir, results_dir=results_dir, pose_dir=pose_dir)
 
@@ -235,3 +258,34 @@ class TestCmdExtract:
         assert (results_dir / 'beast_frames' / stem / 'selected_frames.csv').exists()
         out = capsys.readouterr().out
         assert 'no blank-frames file found' in out
+
+    def test_cmd_extract_skips_video_missing_rect_csv(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+        capsys: pytest.CaptureFixture,
+    ):
+        # Arrange: pose predictions exist, but no {video_name}.csv in input_dir
+        data_dir = tmp_path / 'data'
+        results_dir = tmp_path / 'results'
+        input_dir = results_dir / 'rectangles'
+        pose_dir = results_dir / 'pose'
+        data_dir.mkdir()
+        input_dir.mkdir(parents=True)
+        pose_dir.mkdir(parents=True)
+
+        stem = 'Day1_Tank2_Cuttle1_Resident_Crop'
+        _make_ramp_video(make_custom_video, input_dir / f'{stem}.mp4', n_frames=8)
+        _write_pose_csv(pose_dir / f'{stem}.csv', n_frames=8)
+
+        args = _make_args(data_dir=data_dir, results_dir=results_dir, pose_dir=pose_dir)
+
+        # Act
+        cmd_extract(args)
+
+        # Assert
+        assert not (results_dir / 'beast_frames' / stem).exists()
+        assert not (results_dir / 'manifests' / 'extract.parquet').exists()
+        out = capsys.readouterr().out
+        assert 'no rectangle geometry' in out
+        assert 'No frames extracted.' in out

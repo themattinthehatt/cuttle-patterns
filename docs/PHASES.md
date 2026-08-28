@@ -300,11 +300,17 @@ jets) elsewhere in the dataset.
 Sampling strategy per video, implemented in `cuttle_patterns/preprocessing/extract.py` and
 exposed as `cuttle extract`:
 
-1. Remove frames that are blank (per `data_dir`'s `_black_frames.txt`) or have any
-   tail/neck keypoint likelihood below 0.9 (per `--pose-dir`'s `{video_name}.csv`) —
-   `compute_filtered_frame_mask`. This removes many frames where part of the mantle is
-   occluded, or where two cuttlefish are visible, per the labeling strategy behind
-   Phase 2b's pose predictions.
+1. Remove frames that are blank (per `data_dir`'s `_black_frames.txt`), have any
+   tail/neck keypoint likelihood below 0.9 (per `--pose-dir`'s `{video_name}.csv`), or
+   have a rectangle (from `cuttle inscribe`'s `{video_name}.csv` in `--input-dir`) whose
+   long edge is less than 50% of the neck-tail distance (only checked where likelihood
+   is already OK) — `compute_filtered_frame_mask`, with the rectangle check factored out
+   as `compute_small_rectangle_mask`. The blank/likelihood criteria remove many frames
+   where part of the mantle is occluded, or where two cuttlefish are visible, per the
+   labeling strategy behind Phase 2b's pose predictions; the rectangle-size criterion was
+   found via QC on real `cuttle extract` output — see the "Small-rectangle filter" entry
+   in [DECISIONS.md](DECISIONS.md) — and catches a body clearly longer than the box
+   inscribed around it (a sizing failure `cuttle inscribe` itself doesn't yet detect).
 2. From the survivors, keep only frames whose immediate neighbors (n-1, n+1) also
    survived step 1 — `build_candidate_frame_idxs` — so frame n is only a candidate if
    both its neighbors are themselves valid frames. Frame 0 and the last frame are never
@@ -334,7 +340,8 @@ Unlike `cuttle inscribe`/`cuttle overlay`, where pose predictions are an optiona
 refinement with a PCA-based fallback, `--pose-dir` has **no default** and a video with no
 matching pose CSV is skipped (with a printed warning) rather than extracted without
 likelihood filtering — keypoint filtering is a required part of this algorithm, not an
-optional one.
+optional one. A video with no matching rectangle-geometry CSV in `--input-dir` (should
+only happen if `cuttle inscribe` was never run for it) is skipped the same way.
 
 Output: per video, `results_dir/beast_frames/{video_name}/img{frame_idx}.png` (anchor
 frames + context) and `selected_frames.csv` (anchor frames only); across all videos, a

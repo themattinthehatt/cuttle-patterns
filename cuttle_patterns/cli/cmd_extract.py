@@ -143,6 +143,11 @@ def cmd_extract(args: argparse.Namespace) -> None:
             print(f'  no pose predictions at {pose_path}, skipping {video_path}')
             continue
 
+        rect_csv_path = video_path.with_suffix('.csv')
+        if not rect_csv_path.exists():
+            print(f'  no rectangle geometry at {rect_csv_path}, skipping {video_path}')
+            continue
+
         blank_frames_path = data_dir / f'{session_id}_{fish_id}_black_frames.txt'
         blank_frame_idxs = []
         if blank_frames_path.exists():
@@ -156,6 +161,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
             output_dir,
             blank_frame_idxs=blank_frame_idxs,
             pose_path=pose_path,
+            rect_csv_path=rect_csv_path,
             frames_per_video=args.frames_per_video,
         )
         print(f'  wrote {len(selected_idxs)} frames to {save_dir}')

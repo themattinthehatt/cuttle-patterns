@@ -130,7 +130,10 @@ it already exists, rather than re-encoding it.
 Selects a diverse, representative set of still frames from the aligned crop videos
 (`results_dir/rectangles/{video_name}.mp4`) to train BEAST (Phase 4) on. Per video:
 
-1. Remove frames that are blank or have any tail/neck keypoint likelihood below 0.9.
+1. Remove frames that are blank, have any tail/neck keypoint likelihood below 0.9, or
+   have a rectangle (from `cuttle inscribe`) whose long edge is less than 50% of the
+   neck-tail distance — a body clearly longer than the box drawn around it, found via QC
+   on real data (`scratch/qc_small_rectangles.py`).
 2. Keep only the survivors whose immediate neighbors also survived step 1, so every frame
    BEAST will see as temporal context is itself a valid frame.
 3. From that candidate set, select anchor frames during movement via motion-energy
@@ -141,11 +144,12 @@ Selects a diverse, representative set of still frames from the aligned crop vide
 cuttle extract --pose-dir /path/to/pose/predictions
 ```
 
-`--pose-dir` is **required, with no default** — keypoint-likelihood filtering is a
-required part of the algorithm here, not an optional refinement like in `cuttle
-inscribe`/`cuttle overlay`. A video with no matching `{video_name}.csv` in `--pose-dir`
-(or a missing blank-frames `.txt` in `data_dir`) is skipped/warned about rather than
-silently including unfiltered frames.
+`--pose-dir` is **required, with no default** — keypoint-likelihood and rectangle-size
+filtering are required parts of the algorithm here, not an optional refinement like in
+`cuttle inscribe`/`cuttle overlay`. A video with no matching `{video_name}.csv` in
+`--pose-dir`, no matching `{video_name}.csv` rectangle geometry in `--input-dir` (written
+alongside the video by `cuttle inscribe`), or a missing blank-frames `.txt` in `data_dir`
+is skipped/warned about rather than silently including unfiltered frames.
 
 For each video, writes `results_dir/beast_frames/{video_name}/img{frame_idx}.png` for
 every selected anchor frame plus its immediate neighbors (context for BEAST's temporal
