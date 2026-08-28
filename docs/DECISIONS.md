@@ -6,6 +6,56 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Phase 3 frame selection: filter-then-candidate-restrict BEAST's own kmeans selection
+
+**Date:** 2026-08-28
+**Status:** decided, implemented
+
+**Decision:** For `cuttle extract` (Phase 3), select BEAST training frames per video in
+three steps — (1) remove blank/low-likelihood frames, (2) keep only survivors whose
+immediate neighbors also survived, as the candidate set, (3) run a fork of BEAST v1.4.0's
+`select_frame_idxs_kmeans` (motion-energy threshold → PCA → k-means) restricted to that
+candidate set — rather than calling BEAST's function directly and filtering its output
+afterward. `beast.extraction.select_frame_idxs_kmeans`'s only subsetting knob is
+`frame_range`, a contiguous fractional window (e.g. `[0.25, 0.75]`); it can't express an
+arbitrary/non-contiguous allowed-frame set, so filtering *after* the fact wouldn't have
+worked either — the high-motion-energy percentile and the k-means cluster centers
+themselves need to be computed only over allowed frames, or a disallowed frame could still
+end up as the nearest-frame-to-a-cluster-center pick. `select_frame_idxs_kmeans_restricted`
+(`cuttle_patterns/preprocessing/extract.py`) is that fork: same algorithm, but the
+percentile/PCA/k-means steps only ever see `candidate_idxs`. Everything else BEAST
+offers — `compute_video_motion_energy`, `export_frames` — is reused unmodified; the one
+private helper upstream (`_run_kmeans`) is not imported (its logic — `KMeans(...,
+n_init='auto')` — is three lines, inlined directly with `random_state=0` instead of
+upstream's global `np.random.seed(seed)` + unseeded `KMeans`).
+
+**Why:** Keeps the diversity-selection algorithm identical to BEAST's own (same
+motion-energy-driven PCA/k-means logic Phase 4 training will implicitly assume), while
+still guaranteeing no blank or low-confidence-pose frame — and no frame whose exported
+temporal-context neighbor would be blank/low-confidence — ever ends up in the training
+set. Reusing `pose.interpolate_pose`'s existing `is_interpolated` return value (already
+exactly "this frame's likelihood was too low") for the likelihood-filter mask avoided
+writing new comparison logic for something already computed correctly in Phase 2b.
+
+**Alternatives considered:** monkeypatching or subclassing BEAST's `extract_frames`/
+`select_frame_idxs_kmeans` — rejected, more fragile than a straight fork given the
+function's small size and that a private helper (`_run_kmeans`) would still need
+reaching into; filtering `select_frame_idxs_kmeans`'s *output* against the allowed set —
+rejected as described above, since it doesn't stop a disallowed frame from
+being what a cluster center resolves to, only from being an initial high-motion-energy
+candidate.
+
+**Trade-off / known risk:** `--pose-dir` has no default and a video with no matching pose
+CSV is skipped entirely (warned, not extracted with blank-only filtering) — a deliberate
+asymmetry with `cuttle inscribe`/`cuttle overlay`'s optional-pose-with-PCA-fallback
+design, since likelihood filtering is required here, not an optional refinement.
+`frames_per_video`, the motion-energy percentile thresholds, and `resize_dims` (32,
+hardcoded) are all carried over from BEAST's defaults/upstream logic unchanged and
+untuned against real aligned videos — revisit once real data is available (see
+[PHASES.md](PHASES.md) Phase 3 open questions).
+
+---
+
 ## `scripts/` directory: working scripts not yet promoted to `cuttle_patterns/` + the CLI
 
 **Date:** 2026-08-27

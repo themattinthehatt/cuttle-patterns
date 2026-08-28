@@ -124,3 +124,39 @@ since these are full raw-resolution videos and can otherwise get large; tune siz
 quality with `--crf` (lower is higher quality/larger file, default 28). As with `cuttle
 inscribe`, pass `--skip-existing` to leave a video's `{video_name}_overlay.mp4` alone if
 it already exists, rather than re-encoding it.
+
+### 4. `cuttle extract`
+
+Selects a diverse, representative set of still frames from the aligned crop videos
+(`results_dir/rectangles/{video_name}.mp4`) to train BEAST (Phase 4) on. Per video:
+
+1. Remove frames that are blank or have any tail/neck keypoint likelihood below 0.9.
+2. Keep only the survivors whose immediate neighbors also survived step 1, so every frame
+   BEAST will see as temporal context is itself a valid frame.
+3. From that candidate set, select anchor frames during movement via motion-energy
+   thresholding, PCA, and k-means — a fork of `beast.extraction.select_frame_idxs_kmeans`
+   (BEAST v1.4.0) restricted to only ever pick anchors from the candidate set.
+
+```bash
+cuttle extract --pose-dir /path/to/pose/predictions
+```
+
+`--pose-dir` is **required, with no default** — keypoint-likelihood filtering is a
+required part of the algorithm here, not an optional refinement like in `cuttle
+inscribe`/`cuttle overlay`. A video with no matching `{video_name}.csv` in `--pose-dir`
+(or a missing blank-frames `.txt` in `data_dir`) is skipped/warned about rather than
+silently including unfiltered frames.
+
+For each video, writes `results_dir/beast_frames/{video_name}/img{frame_idx}.png` for
+every selected anchor frame plus its immediate neighbors (context for BEAST's temporal
+training), and a `selected_frames.csv` listing just the anchor frames — matching BEAST's
+own `extract_frames` output layout. Across all videos, also writes a combined
+`results_dir/manifests/extract.parquet` (`session_id`, `fish_id`, `frame_idx`,
+`image_path`, one row per selected anchor frame).
+
+`-n`/`--frames-per-video` caps the number of anchor frames selected per video (default 1000) — 
+a maximum, not an exact count: a video with fewer surviving candidate frames than
+that just uses all of them, with a printed warning. As with the earlier steps,
+`--skip-existing` skips a video whose `beast_frames/{video_name}/selected_frames.csv`
+already exists, and `--video-path`/`--pose-path` process a single video against an
+explicit pose CSV instead of scanning `--input-dir` (default `results_dir/rectangles`).
