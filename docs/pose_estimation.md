@@ -21,9 +21,14 @@ Three supervised models planned (random seeds 0, 1, 2), each:
 - data augmentation: `dlc-top-down`
 - 500 epochs
 
-**Status as of 2026-08-27:** only `vits-dino_seed-0` has actually been trained and had
-video inference run; seed-1/seed-2 are still to come. Project lives at
-`/media/mattw/CUTTLE/pose-estimation/cuttle-test/` (Lightning Pose project directory):
+Models are named `{iteration}_vits-dino_seed-{n}`, where `iteration` tracks successive
+rounds of the active-learning loop below (`iter-1.0` = trained on the initial 720 frames;
+later iterations add frames selected from `iter-1.0`'s QC review, etc.).
+
+**Status as of 2026-08-28:** `iter-1.0_vits-dino_seed-{0,1,2}` are all trained, with video
+inference run for all three. A second round, `iter-1.1_vits-dino_seed-{0,1,2}`, is
+currently training (see Active learning below for what frames were added). Project lives
+at `/media/mattw/CUTTLE/pose-estimation/cuttle-test/` (Lightning Pose project directory):
 `models/{model_name}/video_preds/{video_name}.csv` holds per-video predictions in the
 standard 3-header format `cuttle_patterns/preprocessing/pose.py` parses;
 `CollectedData.csv` at the project root is the ground-truth labeled-frame manifest, one
@@ -33,8 +38,14 @@ CSV row order.
 
 ## Active learning: selecting new frames to label
 
-**Status:** designed and implemented, not yet run for real — needs predictions from at
-least 2 of the 3 seeded models to produce any output, and only `seed-0` exists so far.
+**Status (round 1, complete):** ran `scripts/pose_plot_outliers.py` against
+`iter-1.0_vits-dino_seed-{0,1,2}` over the 32 videos with predictions available at the
+time (Day1-Day3; the 6 Day4 videos were skipped, no inference run yet). Manually paged
+through the QC images and recorded the selected frame indices in
+`{project_dir}/qc/selected_frames.txt` (one line per video: `{video_name} -
+{frame_idx}, {frame_idx}, ...`) — 335 frames total across those 32 videos. Those frames
+have since been labeled and added to `CollectedData.csv`, and round 2 training
+(`iter-1.1_vits-dino_seed-{0,1,2}`) is underway using the expanded label set.
 
 `scripts/pose_plot_outliers.py` (not yet promoted into `cuttle_patterns/` + the `cuttle`
 CLI — see the `scripts/` vs `scratch/` distinction in [DECISIONS.md](DECISIONS.md)) ranks

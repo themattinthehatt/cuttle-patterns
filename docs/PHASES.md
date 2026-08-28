@@ -291,18 +291,6 @@ against the body at any of these settings on this clip.
 one noisy clip; revisit either if they lag behind genuinely fast movements (e.g. escape
 jets) elsewhere in the dataset.
 
-### Remaining Phase 2 work
-
-- ~~Final rotate/crop/warp + derived-video writing~~ — done, see Phase 2a above
-  (`align_video` / `cuttle inscribe`).
-- Canonical crop size (`--canonical-height`, default 100; width = `round(aspect *
-  height)`) is still an arbitrary placeholder — revisit once the distribution of
-  inscribed-rectangle sizes across the full (eventually 72-session) dataset is known.
-- ~~Phase 2b's pose-data plumbing~~ — done, see Phase 2b above (`--pose-dir`/`--pose-path`
-  on `cuttle inscribe`/`cuttle overlay`). Only session-01/cuttle-01 has pose predictions
-  so far; revisit the 0.9 likelihood threshold once more sessions' predictions land and
-  their confidence distribution is known.
-
 ---
 
 ## Phase 3: Representative frame extraction
