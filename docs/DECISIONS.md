@@ -6,6 +6,43 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Small-rectangle filter: exclude frames where the box is much shorter than the body
+
+**Date:** 2026-08-28
+**Status:** decided, implemented
+
+**Decision:** Add a third criterion to `cuttle extract`'s frame-filtering step (alongside
+blank frames and low keypoint likelihood): exclude a frame if, among frames where both
+tail/neck keypoints meet the likelihood threshold, the inscribed rectangle's long edge is
+less than 50% of the neck-tail distance. Implemented as
+`extract.compute_small_rectangle_mask`, called from `extract.compute_filtered_frame_mask`
+whenever both a pose CSV and a rectangle-geometry CSV are available for the video.
+
+**Why:** While QC'ing `cuttle extract`'s output on real data, a scratch script
+(`scratch/qc_small_rectangles.py`) sampling example frames from each video's
+`_overlay.mp4` surfaced a cheap, reliable defect signal: frames where `cuttle inscribe`'s
+rectangle is clearly too short for the body it's supposed to bound, visible immediately
+by eye against the overlay's keypoints. Across all 32 real videos available at the time,
+6,921/1,437,351 frames (0.5%) were flagged at the 50% threshold — worth excluding from
+BEAST's training set (bad alignment geometry would otherwise leak orientation/scale noise
+into pattern-focused training) at negligible cost to how much data remains.
+
+**Alternatives considered:** fixing the underlying `cuttle inscribe` sizing bug that
+produces these rectangles — not pursued yet, since the QC script's job was to first
+quantify and visualize the problem, not diagnose its root cause; filtering is the correct
+short-term mitigation regardless of what that root cause turns out to be, and doesn't
+block making progress on Phase 3/4 while it's investigated.
+
+**Trade-off / known risk:** 50% was chosen directly from the QC script's default (an
+initial guess later tightened from 75% after visual review of examples at that looser
+threshold), not derived from a labeled ground truth of "small enough to hurt training" —
+revisit if the flagged/kept split still looks wrong on visual spot-check. The check only
+runs where likelihood is already high, so it can't catch a genuinely small rectangle
+alongside a genuinely wrong (but confidently predicted) keypoint pair; that failure mode
+is unaddressed by this or any other current filter.
+
+---
+
 ## `cuttle train`/`cuttle predict`: subprocess wrappers around BEAST's own CLI
 
 **Date:** 2026-08-28
