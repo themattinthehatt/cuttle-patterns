@@ -17,9 +17,18 @@ import pandas as pd
 from tqdm import tqdm
 
 from cuttle_patterns.preprocessing.align import CORNER_COLUMNS
+from cuttle_patterns.preprocessing.pose import (
+    DEFAULT_LIKELIHOOD_THRESH,
+    KEYPOINTS,
+    load_pose_predictions,
+)
 
 DETECTED_COLOR_BGR = (0, 255, 0)
 INTERPOLATED_COLOR_BGR = (0, 165, 255)
+KEYPOINT_COLOR_BGR = (180, 105, 255)  # hot pink
+KEYPOINT_BORDER_COLOR_BGR = (255, 255, 255)
+KEYPOINT_RADIUS = 4
+KEYPOINT_BORDER_THICKNESS = 2
 
 # overlay videos are full raw-resolution QC output, potentially thousands of frames;
 # cv2.VideoWriter's ffmpeg backend has no H.264 encoder available in some environments
@@ -69,6 +78,7 @@ def create_overlay_video(
     csv_path: Path,
     output_path: Path,
     crf: int = DEFAULT_CRF,
+    pose_path: Path | None = None,
 ) -> Path:
     """Draw each frame's rectangle (from a geometry CSV) on top of the raw video.
 
@@ -78,6 +88,11 @@ def create_overlay_video(
         output_path: path to write the overlay mp4 to.
         crf: x264 constant rate factor passed to ffmpeg; lower means higher quality and a
             larger file.
+        pose_path: optional path to a pose-prediction CSV (see
+            `cuttle_patterns.preprocessing.pose`). When given, each keypoint is drawn on
+            top of the rectangle (bright pink, white border) for any frame where its raw
+            likelihood is >= `pose.DEFAULT_LIKELIHOOD_THRESH`; low-confidence keypoints
+            are left undrawn rather than interpolated.
 
     Returns:
         output_path.
@@ -89,6 +104,8 @@ def create_overlay_video(
     df = pd.read_csv(csv_path)
     corners = df[CORNER_COLUMNS].to_numpy().reshape(-1, 4, 2)
     is_interpolated = df['is_interpolated'].to_numpy()
+
+    pose_df = load_pose_predictions(pose_path) if pose_path is not None else None
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -110,6 +127,27 @@ def create_overlay_video(
                 color = INTERPOLATED_COLOR_BGR if is_interpolated[idx] else DETECTED_COLOR_BGR
                 poly = corners[idx].astype(np.int32)
                 cv2.polylines(frame, [poly], isClosed=True, color=color, thickness=2)
+
+                if pose_df is not None:
+                    for keypoint in KEYPOINTS:
+                        likelihood = pose_df[f'{keypoint}_likelihood'].iat[idx]
+                        if likelihood < DEFAULT_LIKELIHOOD_THRESH:
+                            continue
+                        center = (
+                            int(round(pose_df[f'{keypoint}_x'].iat[idx])),
+                            int(round(pose_df[f'{keypoint}_y'].iat[idx])),
+                        )
+                        cv2.circle(
+                            frame,
+                            center,
+                            KEYPOINT_RADIUS + KEYPOINT_BORDER_THICKNESS,
+                            KEYPOINT_BORDER_COLOR_BGR,
+                            thickness=-1,
+                        )
+                        cv2.circle(
+                            frame, center, KEYPOINT_RADIUS, KEYPOINT_COLOR_BGR, thickness=-1,
+                        )
+
                 writer.stdin.write(frame.tobytes())
         finally:
             writer.stdin.close()

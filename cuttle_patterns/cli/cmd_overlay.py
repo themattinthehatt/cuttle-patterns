@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import find_raw_videos
 from cuttle_patterns.preprocessing.align import (
@@ -28,6 +29,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         'overlay',
         help="draw a video's inscribed rectangles on its raw frames, for QC",
+        formatter_class=DefaultsHelpFormatter,
     )
     parser.add_argument(
         '--data-dir',
@@ -55,12 +57,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help='process a single video instead of every raw video in data_dir',
     )
     parser.add_argument(
+        '--skip-existing',
+        action='store_true',
+        help='skip a video if its {video_name}_overlay.mp4 already exists in output_dir',
+    )
+    parser.add_argument(
         '--pose-dir',
         type=Path,
         metavar='PATH',
         help=f'directory containing {{video_name}}.csv pose predictions (see '
-        f'cuttle_patterns.preprocessing.pose), passed to inscribe if {{video_name}}.csv '
-        f'does not exist yet; defaults to results_dir/{POSE_RELPATH}',
+        f'cuttle_patterns.preprocessing.pose); keypoints are drawn on the overlay, and '
+        f'this is also passed to inscribe if {{video_name}}.csv does not exist yet; '
+        f'defaults to results_dir/{POSE_RELPATH}',
     )
     parser.add_argument(
         '--pose-path',
@@ -151,16 +159,22 @@ def cmd_overlay(args: argparse.Namespace) -> None:
             return
 
     for video_path in video_paths:
-        csv_path = output_dir / f'{video_path.stem}.csv'
-        if not csv_path.exists():
-            pose_path = (
-                args.pose_path if args.pose_path is not None
-                else pose_dir / f'{video_path.stem}.csv'
-            )
-            if not pose_path.exists():
-                print(f'  no pose predictions at {pose_path}, using PCA-based inscription')
-                pose_path = None
+        overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
+        if args.skip_existing and overlay_path.exists():
+            print(f'skipping {video_path} ({overlay_path} already exists)')
+            continue
 
+        csv_path = output_dir / f'{video_path.stem}.csv'
+
+        pose_path = (
+            args.pose_path if args.pose_path is not None
+            else pose_dir / f'{video_path.stem}.csv'
+        )
+        if not pose_path.exists():
+            print(f'  no pose predictions at {pose_path}')
+            pose_path = None
+
+        if not csv_path.exists():
             print(f'{csv_path} not found, running inscribe for {video_path}...')
             align_video(
                 video_path,
@@ -173,7 +187,8 @@ def cmd_overlay(args: argparse.Namespace) -> None:
                 smoothing_sigma=args.smoothing_sigma,
             )
 
-        overlay_path = output_dir / f'{video_path.stem}_overlay.mp4'
         print(f'writing overlay for {video_path}...')
-        create_overlay_video(video_path, csv_path, overlay_path, crf=args.crf)
+        create_overlay_video(
+            video_path, csv_path, overlay_path, crf=args.crf, pose_path=pose_path,
+        )
         print(f'  wrote {overlay_path}')

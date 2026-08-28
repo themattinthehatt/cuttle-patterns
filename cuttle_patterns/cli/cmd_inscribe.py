@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import find_raw_videos
 from cuttle_patterns.preprocessing.align import (
@@ -27,6 +28,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         'inscribe',
         help='inscribe egocentric rectangles and write aligned crop videos',
+        formatter_class=DefaultsHelpFormatter,
     )
     parser.add_argument(
         '--data-dir',
@@ -52,6 +54,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         metavar='PATH',
         help='process a single video instead of every raw video in data_dir',
+    )
+    parser.add_argument(
+        '--skip-existing',
+        action='store_true',
+        help='skip a video if its {video_name}.mp4 and .csv already exist in output_dir',
     )
     parser.add_argument(
         '--pose-dir',
@@ -144,6 +151,12 @@ def cmd_inscribe(args: argparse.Namespace) -> None:
             return
 
     for video_path in video_paths:
+        video_out_path = output_dir / f'{video_path.stem}.mp4'
+        csv_out_path = output_dir / f'{video_path.stem}.csv'
+        if args.skip_existing and video_out_path.exists() and csv_out_path.exists():
+            print(f'skipping {video_path} ({video_out_path} already exists)')
+            continue
+
         pose_path = (
             args.pose_path if args.pose_path is not None else pose_dir / f'{video_path.stem}.csv'
         )

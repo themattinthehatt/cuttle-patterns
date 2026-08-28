@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import DEFAULT_CONFIG_PATH, Config, load_config, save_config
 
 
@@ -16,6 +17,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         'setup',
         help='configure data_dir and results_dir in ~/.cuttle-patterns/config.yaml',
+        formatter_class=DefaultsHelpFormatter,
     )
     parser.set_defaults(handler=cmd_setup)
 

@@ -8,6 +8,8 @@ embedding via BEAST, and interactive tools for exploring the resulting pattern c
 
 - [docs/PHASES.md](docs/PHASES.md) — project phases/roadmap
 - [docs/DECISIONS.md](docs/DECISIONS.md) — decision log
+- [docs/pose_estimation.md](docs/pose_estimation.md) — pose model used for pose-informed
+  `cuttle inscribe`
 
 ## Setup
 
@@ -72,7 +74,9 @@ It runs in one of two modes, chosen automatically per video:
   so it only ever sees the mantle. By default, `cuttle inscribe` looks for predictions at
   `results_dir/pose/{video_name}.csv`; point it elsewhere with `--pose-dir`. Videos with
   no matching pose file fall back to the PCA-based mode with a printed message, so it's
-  safe to run over a mix of videos with and without predictions.
+  safe to run over a mix of videos with and without predictions. See
+  [docs/pose_estimation.md](docs/pose_estimation.md) for how these pose predictions are
+  produced.
 
 Either mode can still leave the rectangle jittering frame-to-frame during rapid body
 motion (fin beats in particular); the corner trajectory is smoothed to damp this, via
@@ -92,6 +96,10 @@ cuttle inscribe --video-path /path/to/Day1_Tank2_Cuttle1_Resident_Crop.mp4 \
   --pose-path /path/to/Day1_Tank2_Cuttle1_Resident_Crop_pose.csv
 ```
 
+Pass `--skip-existing` to leave a video alone (no re-inscription) if its
+`{video_name}.mp4`/`.csv` already exist in `output_dir`, so a batch run can be safely
+re-run over a directory that's only partially processed.
+
 ### 3. `cuttle overlay` (optional QC)
 
 Draws each frame's (interpolated) rectangle on top of the corresponding *raw* frame —
@@ -101,10 +109,18 @@ exists for a video; otherwise runs the same detection first (accepting the same
 `--pose-dir`/`--pose-path`/`--thresh`/`--aspect` flags as `cuttle inscribe`, used only if
 it has to compute the CSV itself).
 
+If a matching pose-prediction CSV is found (`--pose-dir`/`--pose-path`, same lookup as
+`cuttle inscribe`; see [docs/pose_estimation.md](docs/pose_estimation.md)), each frame's
+tail/neck keypoints are also drawn on top of the rectangle — bright pink with a white
+border — but only where the raw prediction's likelihood is >= 0.9; lower-confidence
+keypoints are left undrawn rather than interpolated.
+
 ```bash
 cuttle overlay
 ```
 
 Writes `results_dir/rectangles/{video_name}_overlay.mp4`, H.264-encoded (via `ffmpeg`)
 since these are full raw-resolution videos and can otherwise get large; tune size vs.
-quality with `--crf` (lower is higher quality/larger file, default 28).
+quality with `--crf` (lower is higher quality/larger file, default 28). As with `cuttle
+inscribe`, pass `--skip-existing` to leave a video's `{video_name}_overlay.mp4` alone if
+it already exists, rather than re-encoding it.

@@ -37,6 +37,25 @@ def _write_pose_csv(path: Path, n_frames: int, tail: tuple, neck: tuple) -> Path
     return path
 
 
+def _make_args(**overrides) -> argparse.Namespace:
+    defaults = dict(
+        data_dir=None,
+        results_dir=None,
+        output_dir=None,
+        video_path=None,
+        skip_existing=False,
+        pose_dir=None,
+        pose_path=None,
+        thresh=0,
+        aspect=2.0,
+        canonical_height=20,
+        smoothing_window=9,
+        smoothing_sigma=None,
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
 class TestCmdInscribe:
     """Test the function cmd_inscribe."""
 
@@ -49,19 +68,7 @@ class TestCmdInscribe:
         monkeypatch.setattr(
             'cuttle_patterns.cli.cmd_inscribe.load_config', _raise_file_not_found,
         )
-        args = argparse.Namespace(
-            data_dir=None,
-            results_dir=None,
-            output_dir=None,
-            video_path=None,
-            pose_dir=None,
-            pose_path=None,
-            thresh=0,
-            aspect=2.0,
-            canonical_height=20,
-            smoothing_window=9,
-            smoothing_sigma=None,
-        )
+        args = _make_args()
 
         # Act & Assert
         with pytest.raises(SystemExit) as exc_info:
@@ -83,19 +90,7 @@ class TestCmdInscribe:
             data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
             [_blob_frame(), _blob_frame(), _blob_frame()],
         )
-        args = argparse.Namespace(
-            data_dir=data_dir,
-            results_dir=results_dir,
-            output_dir=None,
-            video_path=None,
-            pose_dir=None,
-            pose_path=None,
-            thresh=0,
-            aspect=2.0,
-            canonical_height=20,
-            smoothing_window=9,
-            smoothing_sigma=None,
-        )
+        args = _make_args(data_dir=data_dir, results_dir=results_dir)
 
         # Act
         cmd_inscribe(args)
@@ -128,19 +123,7 @@ class TestCmdInscribe:
             pose_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.csv', n_frames=3,
             tail=(25.0, 30.0), neck=(95.0, 30.0),
         )
-        args = argparse.Namespace(
-            data_dir=data_dir,
-            results_dir=results_dir,
-            output_dir=None,
-            video_path=None,
-            pose_dir=None,
-            pose_path=None,
-            thresh=0,
-            aspect=2.0,
-            canonical_height=20,
-            smoothing_window=9,
-            smoothing_sigma=None,
-        )
+        args = _make_args(data_dir=data_dir, results_dir=results_dir)
 
         # Act
         cmd_inscribe(args)
@@ -150,6 +133,38 @@ class TestCmdInscribe:
         assert (output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4').exists()
         out = capsys.readouterr().out
         assert 'no pose predictions' not in out
+
+    def test_cmd_inscribe_skip_existing(
+        self,
+        tmp_path: Path,
+        make_custom_video: Callable,
+        capsys: pytest.CaptureFixture,
+    ):
+        # Arrange: output mp4/csv already present for the one video in data_dir
+        data_dir = tmp_path / 'data'
+        results_dir = tmp_path / 'results'
+        data_dir.mkdir()
+        make_custom_video(
+            data_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4',
+            [_blob_frame(), _blob_frame(), _blob_frame()],
+        )
+        output_dir = results_dir / 'rectangles'
+        output_dir.mkdir(parents=True)
+        video_out_path = output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.mp4'
+        csv_out_path = output_dir / 'Day1_Tank2_Cuttle1_Resident_Crop.csv'
+        video_out_path.write_bytes(b'existing')
+        csv_out_path.write_text('existing')
+        args = _make_args(data_dir=data_dir, results_dir=results_dir, skip_existing=True)
+
+        # Act
+        cmd_inscribe(args)
+
+        # Assert: neither file was touched, and inscribe never ran for this video
+        assert video_out_path.read_bytes() == b'existing'
+        assert csv_out_path.read_text() == 'existing'
+        out = capsys.readouterr().out
+        assert 'skipping' in out
+        assert 'processing' not in out
 
     def test_cmd_inscribe_smoothing_flags_are_mutually_exclusive(
         self,

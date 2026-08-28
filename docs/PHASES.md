@@ -126,7 +126,9 @@ orchestration in `cuttle_patterns/preprocessing/align.py` and
 - `cuttle overlay [same flags]` — QC tool. For each video, if `{video_name}.csv` doesn't
   exist yet, runs the same inscribe logic to produce it; then draws each frame's
   (interpolated) rectangle on the *raw* frame — green if directly detected, orange if
-  interpolated — and writes `{output_dir}/{video_name}_overlay.mp4`.
+  interpolated — plus, if a matching pose CSV is found, each keypoint with likelihood
+  >= 0.9 (bright pink, white border; lower-confidence keypoints are left undrawn rather
+  than interpolated) — and writes `{output_dir}/{video_name}_overlay.mp4`.
 
 Tests: `tests/preprocessing/{test_inscribe,test_align,test_overlay}.py` and
 `tests/cli/{test_cmd_inscribe,test_cmd_overlay}.py`. There's also a standalone
@@ -288,18 +290,6 @@ against the body at any of these settings on this clip.
 **Open question:** both the window (9 frames) and sigma (2.0) were tuned by eye/on this
 one noisy clip; revisit either if they lag behind genuinely fast movements (e.g. escape
 jets) elsewhere in the dataset.
-
-### Remaining Phase 2 work
-
-- ~~Final rotate/crop/warp + derived-video writing~~ — done, see Phase 2a above
-  (`align_video` / `cuttle inscribe`).
-- Canonical crop size (`--canonical-height`, default 100; width = `round(aspect *
-  height)`) is still an arbitrary placeholder — revisit once the distribution of
-  inscribed-rectangle sizes across the full (eventually 72-session) dataset is known.
-- ~~Phase 2b's pose-data plumbing~~ — done, see Phase 2b above (`--pose-dir`/`--pose-path`
-  on `cuttle inscribe`/`cuttle overlay`). Only session-01/cuttle-01 has pose predictions
-  so far; revisit the 0.9 likelihood threshold once more sessions' predictions land and
-  their confidence distribution is known.
 
 ---
 
