@@ -359,20 +359,39 @@ Tests: `tests/preprocessing/test_extract.py`, `tests/cli/test_cmd_extract.py`.
 loss) on our own unlabeled aligned frames, per the paper's experiment-specific pretraining
 design — not reusing a checkpoint trained on a different dataset.
 
+**Status:** first backbone trained is a cheaper ResNet18 autoencoder, not yet the ViT —
+see the "Backbone sequencing" entry in [DECISIONS.md](DECISIONS.md). `cuttle train`/
+`cuttle predict` (`cuttle_patterns/cli/cmd_train.py`/`cmd_predict.py`) are thin
+subprocess wrappers around BEAST's own `beast train`/`beast predict` CLI — `cuttle`
+resolves `results_dir` the usual way and passes it to BEAST via `--data`/`--output`, so
+the checked-in config ([`configs/beast_resnet_ae.yaml`](../configs/beast_resnet_ae.yaml))
+stays machine-agnostic. See README.md's pipeline step 5 for the commands. Tests:
+`tests/cli/test_cmd_train.py`, `tests/cli/test_cmd_predict.py`.
+
 - Install/import `beast-backbones`; use its training entry point (library call or CLI)
   rather than reimplementing the ViT/MAE/contrastive loop.
-- Prepare data in whatever input format `beast-backbones` expects (frames + temporal
-  neighbor structure for the contrastive sampling) — to be confirmed once we're working
-  against the package.
+- Data-loading contract, confirmed: `data.data_dir` in the BEAST config points at a
+  directory `beast`'s `BaseDataset` recursively globs for `*.png` — `cuttle extract`'s
+  `results_dir/beast_frames` tree (per-video subdirectories of exported frames) works
+  directly, no reshaping needed. This also means every exported frame (anchors *and*
+  their ±1 context neighbors) is used for training, not just the ones listed in each
+  video's `selected_frames.csv`.
 - Train on the cloud multi-GPU machine (code should assume a local-style multi-GPU
   workstation — no SLURM/job-array abstractions needed, see
   [DECISIONS.md](DECISIONS.md)).
 - Checkpointing and basic experiment tracking (what config/data produced which
-  checkpoint).
+  checkpoint) — currently just BEAST's own run directory, named via `cuttle train
+  --model-name` (saved to `results_dir/beast_models/{model_name}`); no `cuttle`-side
+  tracking layer beyond that naming convention yet.
 
 **Open questions:**
-- `beast-backbones` package's exact data-loading contract and CLI surface (need to read
-  its docs/source once the data pipeline is ready to feed it).
+- When to train the ViT (with MAE + temporal-contrastive loss) originally targeted for
+  this phase — after the ResNet-AE pipeline is validated end to end (Phase 5/6/7 working
+  against real embeddings), per the sequencing decision in DECISIONS.md.
+- `beast-backbones`'s temporal-contrastive-specific data requirements (neighbor
+  structure) haven't been exercised yet, since the first config trained has no
+  contrastive loss (`use_infoNCE: False` equivalent for the resnet-AE) — revisit once the
+  ViT config is in use.
 
 ---
 

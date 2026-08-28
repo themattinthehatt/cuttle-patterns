@@ -160,3 +160,33 @@ that just uses all of them, with a printed warning. As with the earlier steps,
 `--skip-existing` skips a video whose `beast_frames/{video_name}/selected_frames.csv`
 already exists, and `--video-path`/`--pose-path` process a single video against an
 explicit pose CSV instead of scanning `--input-dir` (default `results_dir/rectangles`).
+
+### 5. `cuttle train` / `cuttle predict`
+
+Thin wrappers around BEAST's own `beast train`/`beast predict` CLI (`beast-backbones`
+must be installed, which it is as a dependency of this package) — `cuttle` just resolves
+`results_dir` the usual way and passes it to BEAST via its own `--data`/`--output`
+flags, so the checked-in configs under `configs/` (e.g. `configs/beast_resnet_ae.yaml`)
+can stay machine-agnostic instead of hardcoding a `data_dir`.
+
+```bash
+cuttle train --config configs/beast_resnet_ae.yaml --model-name resnet-ae-v1
+cuttle predict --model-name resnet-ae-v1 --save-latents
+```
+
+`configs/beast_resnet_ae.yaml` is a ResNet18 autoencoder — cheaper to train than the
+ViT + MAE + temporal-contrastive architecture that's the eventual target (see
+[docs/DECISIONS.md](docs/DECISIONS.md)), so it's the first backbone trained to get the
+rest of the pipeline running end to end; a ViT config will follow once that's validated.
+
+`cuttle train` saves to `results_dir/beast_models/{model_name}` (`--model-name` is
+required, no default); `cuttle predict` looks a model back up by that same name. Both
+default `--input-dir` to `results_dir/beast_frames` (i.e. the training-frame set from
+step 4, not full videos — full-video inference is a later step, once a checkpoint is
+trained). `--gpus`/`--nodes`/`--overrides` on `cuttle train`, and `--batch-size`/
+`--save-latents`/`--save-reconstructions`/`--output-dir` on `cuttle predict`, pass
+straight through to BEAST's own flags of the same purpose.
+
+`cuttle predict` writes under `{model_dir}/image_predictions/{input_dir.stem}` by
+default — per-frame embeddings as `latents/{...}/{frame_stem}.npy` when
+`--save-latents` is passed, reconstructed images when `--save-reconstructions` is.

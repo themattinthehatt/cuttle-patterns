@@ -6,6 +6,77 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## `cuttle train`/`cuttle predict`: subprocess wrappers around BEAST's own CLI
+
+**Date:** 2026-08-28
+**Status:** decided, implemented
+
+**Decision:** Wrap BEAST's own `beast train`/`beast predict` CLI commands in
+`cuttle train`/`cuttle predict` (`cuttle_patterns/cli/cmd_train.py`/`cmd_predict.py`) by
+building the equivalent `beast` argv and running it as a subprocess (stdout/stderr
+inherited, so BEAST's own training/inference logs stream live) — not by calling
+`beast.api.model.Model` directly in-process. `cuttle` resolves `results_dir` the usual
+config-or-override way and passes it to BEAST via its own `--data`/`--output` flags
+(`beast train`) and `--model`/`--input` (`beast predict`), so the checked-in configs
+under `configs/` can stay machine-agnostic instead of committing one machine's absolute
+`data_dir`. Models are saved to `results_dir/beast_models/{model_name}` — `--model-name`
+is required on `cuttle train` (no default) and looked up again by `cuttle predict`, so
+the two commands share one naming scheme. `cuttle train` also passes through BEAST's
+`--gpus`/`--nodes`/`--overrides` flags, since real training targets the multi-GPU cloud
+machine (see the "Compute" entry below).
+
+**Why:** A subprocess wrapper is a few dozen lines and reuses everything BEAST's own CLI
+commands already do correctly (config loading/validation via pydantic, output-dir setup,
+its own logging setup) — calling `Model` directly would mean reimplementing that
+scaffolding in `cuttle_patterns` for no real benefit, and would couple this repo to
+BEAST's internal API surface rather than its public CLI contract, which is more likely to
+stay stable across `beast-backbones` versions.
+
+**Alternatives considered:** calling `beast.api.model.Model.from_config(...).train(...)`/
+`Model.from_dir(...).predict_images(...)` directly — rejected per above; capturing
+subprocess output instead of inheriting stdout/stderr — rejected, since BEAST's training
+logs are long-running and meant to be watched live, not buffered until the process exits.
+
+**Trade-off / known risk:** errors surface as BEAST's own CLI error output plus a bare
+nonzero exit code propagated from `cuttle`, not a `cuttle`-specific error message (except
+the two fail-fast checks `cuttle` does itself: `beast` missing from `PATH`, and
+`cuttle predict`'s model directory not existing). `cuttle train` warns but doesn't block
+when `--model-name` points at a non-empty existing directory, since BEAST's CLI doesn't
+support resuming (a fresh run just starts training from scratch again) — re-running with
+the same name is on the user to intend.
+
+---
+
+## Backbone sequencing: train a ResNet18 autoencoder before the ViT
+
+**Date:** 2026-08-28
+**Status:** decided, implemented (config only — training itself run manually via BEAST's
+own CLI, not yet executed against real data)
+
+**Decision:** Train a ResNet18 autoencoder (`configs/beast_resnet_ae.yaml`,
+`model_class: resnet`, no contrastive loss) as the first BEAST backbone, rather than
+going straight to the ViT + MAE + temporal-contrastive design that's the eventual target
+(see "Embedding backbone" below and [PHASES.md](PHASES.md) Phase 4).
+
+**Why:** The ViT is meaningfully more expensive to train. Getting the full pipeline
+(Phase 4 training → Phase 5 embedding extraction → Phase 6 clustering → Phase 7
+visualization) running end to end against a cheap backbone first surfaces pipeline/data
+issues (data-loading contract, output format, downstream code assumptions) without
+paying the ViT's training cost while still iterating on those issues.
+
+**Alternatives considered:** training the ViT first, per the original Phase 4 plan —
+not rejected outright, just deferred: still the intended production backbone, to be
+trained once the rest of the pipeline is validated against the ResNet-AE's embeddings.
+
+**Trade-off / known risk:** the ResNet-AE has no temporal-contrastive loss, so it won't
+exercise `beast-backbones`'s contrastive-specific data requirements (temporal neighbor
+sampling) — those remain unvalidated against our data until the ViT config is actually
+trained. Downstream code (Phase 5 embedding storage, Phase 6 clustering) should avoid
+hardcoding the 768-d ViT embedding size, since the ResNet-AE's `num_latents: 16` gives a
+different dimensionality.
+
+---
+
 ## Phase 3 frame selection: filter-then-candidate-restrict BEAST's own kmeans selection
 
 **Date:** 2026-08-28
