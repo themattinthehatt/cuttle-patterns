@@ -121,10 +121,10 @@ different dimensionality.
 
 **Decision:** For `cuttle extract` (Phase 3), select BEAST training frames per video in
 three steps — (1) remove blank/low-likelihood frames, (2) keep only survivors whose
-immediate neighbors also survived, as the candidate set, (3) run a fork of BEAST v1.4.0's
-`select_frame_idxs_kmeans` (motion-energy threshold → PCA → k-means) restricted to that
-candidate set — rather than calling BEAST's function directly and filtering its output
-afterward. `beast.extraction.select_frame_idxs_kmeans`'s only subsetting knob is
+immediate neighbors also survived, as the candidate set, (3) run a fork of BEAST's
+`select_frame_idxs_kmeans` (motion-energy threshold → PCA → k-means)
+restricted to that candidate set — rather than calling BEAST's function directly and
+filtering its output afterward. `select_frame_idxs_kmeans`'s only subsetting knob is
 `frame_range`, a contiguous fractional window (e.g. `[0.25, 0.75]`); it can't express an
 arbitrary/non-contiguous allowed-frame set, so filtering *after* the fact wouldn't have
 worked either — the high-motion-energy percentile and the k-means cluster centers

@@ -137,8 +137,9 @@ Selects a diverse, representative set of still frames from the aligned crop vide
 2. Keep only the survivors whose immediate neighbors also survived step 1, so every frame
    BEAST will see as temporal context is itself a valid frame.
 3. From that candidate set, select anchor frames during movement via motion-energy
-   thresholding, PCA, and k-means — a fork of `beast.extraction.select_frame_idxs_kmeans`
-   (BEAST v1.4.0) restricted to only ever pick anchors from the candidate set.
+   thresholding, PCA, and k-means — a fork of
+   `beast.preprocess.extraction.select_frame_idxs_kmeans` (BEAST v2.0.0) restricted to
+   only ever pick anchors from the candidate set.
 
 ```bash
 cuttle extract --pose-dir /path/to/pose/predictions

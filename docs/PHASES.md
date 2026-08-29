@@ -320,8 +320,7 @@ exposed as `cuttle extract`:
 3. From that candidate set, select diverse anchor frames during movement using BEAST's
    own approach (motion-energy thresholding, PCA, k-means) —
    `select_frame_idxs_kmeans_restricted`, a fork of
-   `beast.extraction.select_frame_idxs_kmeans` (BEAST v1.4.0,
-   github.com/paninski-lab/beast/blob/v1.4.0/beast/extraction.py) restricted so the
+   `beast.preprocess.extraction.select_frame_idxs_kmeans` restricted so the
    motion-energy percentile, PCA, and k-means steps only ever operate over
    `candidate_idxs` — upstream's only subsetting knob, a contiguous fractional
    `frame_range`, can't express an arbitrary/non-contiguous allowed-frame set, so a true
@@ -329,12 +328,12 @@ exposed as `cuttle extract`:
    (`-n`, default 1000) is a maximum: a video with fewer surviving candidates just uses
    all of them, with a printed warning, rather than raising.
 
-`beast.extraction.export_frames` and `beast.video.compute_video_motion_energy` are reused
-unmodified for exporting frames (with ±1 context frames, matching BEAST's own output
-layout: `img{frame_idx}.png` + `selected_frames.csv` per video) and computing motion
-energy, respectively. Keypoint-likelihood filtering itself needed no new logic either —
-it reuses `pose.interpolate_pose`'s existing `is_interpolated` return value (already
-exactly "this frame's likelihood was too low") as the filter mask.
+`beast.preprocess.extraction.export_frames` and `beast.video.compute_video_motion_energy`
+are reused unmodified for exporting frames (with ±1 context frames, matching BEAST's own
+output layout: `img{frame_idx}.png` + `selected_frames.csv` per video) and computing
+motion energy, respectively. Keypoint-likelihood filtering itself needed no new logic
+either — it reuses `pose.interpolate_pose`'s existing `is_interpolated` return value
+(already exactly "this frame's likelihood was too low") as the filter mask.
 
 Unlike `cuttle inscribe`/`cuttle overlay`, where pose predictions are an optional
 refinement with a PCA-based fallback, `--pose-dir` has **no default** and a video with no

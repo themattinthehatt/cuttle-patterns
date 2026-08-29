@@ -12,14 +12,13 @@ Sampling strategy per video (see `docs/PHASES.md` Phase 3):
    uses as temporal context is itself a valid frame (`build_candidate_frame_idxs`).
 3. From that candidate set, select diverse anchor frames during movement via motion-energy
    thresholding, PCA, and k-means (`select_frame_idxs_kmeans_restricted`) — a fork of
-   `beast.extraction.select_frame_idxs_kmeans` (v1.4.0,
-   https://github.com/paninski-lab/beast/blob/v1.4.0/beast/extraction.py), restricted to
-   only ever pick anchors from the candidate set. A true restriction isn't possible by
+   `beast.preprocess.extraction.select_frame_idxs_kmeans`, restricted
+   to only ever pick anchors from the candidate set. A true restriction isn't possible by
    calling that function directly: its only subsetting knob is `frame_range`, a contiguous
    fractional window, which can't express an arbitrary/non-contiguous allowed-frame set.
 
 `export_frames` and `compute_video_motion_energy` are reused unmodified from
-`beast.extraction`/`beast.video`.
+`beast.preprocess.extraction`/`beast.video`.
 """
 
 import logging
@@ -28,7 +27,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pandas as pd
-from beast.extraction import export_frames
+from beast.preprocess.extraction import export_frames
 from beast.video import compute_video_motion_energy
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -167,9 +166,9 @@ def select_frame_idxs_kmeans_restricted(
     """Select distinct frames during movement, restricted to a set of candidate frames.
 
     Same motion-energy + PCA + k-means algorithm as
-    `beast.extraction.select_frame_idxs_kmeans` (v1.4.0), except the high-motion-energy
-    percentile, PCA, and k-means steps only ever see `candidate_idxs`, so a filtered-out
-    frame can never be selected as an anchor.
+    `beast.preprocess.extraction.select_frame_idxs_kmeans` (v2.0.0), except the
+    high-motion-energy percentile, PCA, and k-means steps only ever see `candidate_idxs`,
+    so a filtered-out frame can never be selected as an anchor.
 
     Args:
         video_path: absolute path to the video file.
