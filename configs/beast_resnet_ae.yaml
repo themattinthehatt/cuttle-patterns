@@ -13,7 +13,7 @@ model:
 training:
   seed: 0
   imgaug: default
-  train_batch_size: 1024      # per GPU (1024 works for 5090)
+  train_batch_size: 512      # per GPU (512 uses ~28GB with 16 latents)
   val_batch_size: 1024
   test_batch_size: 128
   num_epochs: 800
