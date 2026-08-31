@@ -349,39 +349,35 @@ combined frame manifest at `results_dir/manifests/extract.parquet` (`session_id`
 
 Tests: `tests/preprocessing/test_extract.py`, `tests/cli/test_cmd_extract.py`.
 
-**Open questions:**
-- `frames_per_video` (1000), the motion-energy percentile threshold (50th/75th,
-  unchanged from BEAST upstream), and `resize_dims` (32, hardcoded rather than a CLI
-  flag) are all untuned against real data so far — revisit once real aligned videos +
-  pose predictions are available to check the selected frames against.
-- Whether 1000 frames/video, across all sessions, gives BEAST enough (and sufficiently
-  non-redundant) training data — deferred to Phase 4.
-
 ---
 
-## Phase 4: BEAST training
+## Phase 4: BEAST training & inference — implemented, CLI-exposed
 
 **Goal:** train a BEAST backbone (ViT with masked autoencoding + temporal contrastive
 loss) on our own unlabeled aligned frames, per the paper's experiment-specific pretraining
-design — not reusing a checkpoint trained on a different dataset.
+design — not reusing a checkpoint trained on a different dataset — then run the trained
+backbone over frames to produce a 768-d embedding for every frame we care to embed.
 
 **Status:** first backbone trained is a cheaper ResNet18 autoencoder, not yet the ViT —
-see the "Backbone sequencing" entry in [DECISIONS.md](DECISIONS.md). `cuttle train`/
-`cuttle predict` (`cuttle_patterns/cli/cmd_train.py`/`cmd_predict.py`) are thin
-subprocess wrappers around BEAST's own `beast train`/`beast predict` CLI — `cuttle`
-resolves `results_dir` the usual way and passes it to BEAST via `--data`/`--output`, so
-the checked-in config ([`configs/beast_resnet_ae.yaml`](../configs/beast_resnet_ae.yaml))
-stays machine-agnostic. See README.md's pipeline step 5 for the commands. Tests:
+see the "Backbone sequencing" entry in [DECISIONS.md](DECISIONS.md); the training/
+inference machinery below is backbone-agnostic and doesn't change when that swap happens.
+`cuttle train`/`cuttle predict` (`cuttle_patterns/cli/cmd_train.py`/`cmd_predict.py`) are
+thin subprocess wrappers around BEAST's own `beast train`/`beast predict` CLI — `cuttle`
+resolves `results_dir` the usual way and passes it to BEAST via `--data`/`--output`
+(train) or `--input`/`--output` (predict), so the checked-in config
+([`configs/beast_resnet_ae.yaml`](../configs/beast_resnet_ae.yaml)) stays
+machine-agnostic. See README.md's pipeline step 5 for the commands. Tests:
 `tests/cli/test_cmd_train.py`, `tests/cli/test_cmd_predict.py`.
 
-- Install/import `beast-backbones`; use its training entry point (library call or CLI)
-  rather than reimplementing the ViT/MAE/contrastive loop.
+- Install/import `beast-backbones`; use its training and inference entry points (library
+  call or CLI) rather than reimplementing the ViT/MAE/contrastive loop or the forward
+  pass.
 - Data-loading contract, confirmed: `data.data_dir` in the BEAST config points at a
   directory `beast`'s `BaseDataset` recursively globs for `*.png` — `cuttle extract`'s
   `results_dir/beast_frames` tree (per-video subdirectories of exported frames) works
-  directly, no reshaping needed. This also means every exported frame (anchors *and*
-  their ±1 context neighbors) is used for training, not just the ones listed in each
-  video's `selected_frames.csv`.
+  directly for both training and inference input, no reshaping needed. This also means
+  every exported frame (anchors *and* their ±1 context neighbors) is used for training,
+  not just the ones listed in each video's `selected_frames.csv`.
 - Train on the cloud multi-GPU machine (code should assume a local-style multi-GPU
   workstation — no SLURM/job-array abstractions needed, see
   [DECISIONS.md](DECISIONS.md)).
@@ -389,44 +385,76 @@ stays machine-agnostic. See README.md's pipeline step 5 for the commands. Tests:
   checkpoint) — currently just BEAST's own run directory, named via `cuttle train
   --model-name` (saved to `results_dir/beast_models/{model_name}`); no `cuttle`-side
   tracking layer beyond that naming convention yet.
-
-**Open questions:**
-- When to train the ViT (with MAE + temporal-contrastive loss) originally targeted for
-  this phase — after the ResNet-AE pipeline is validated end to end (Phase 5/6/7 working
-  against real embeddings), per the sequencing decision in DECISIONS.md.
-- `beast-backbones`'s temporal-contrastive-specific data requirements (neighbor
-  structure) haven't been exercised yet, since the first config trained has no
-  contrastive loss (`use_infoNCE: False` equivalent for the resnet-AE) — revisit once the
-  ViT config is in use.
-
----
-
-## Phase 5: Embedding extraction
-
-**Goal:** get a 768-d BEAST embedding for every frame in the training set (and,
-eventually, any frame we care to embed).
-
-- Run the trained backbone over frames to produce embeddings.
-- Store embeddings alongside frame metadata (session, fish, frame index, video path) in
-  a structured format (Parquet/HDF5) under `results_dir`, keyed so they can be joined
-  back to the manifest from Phase 3.
-- Structure this so alternative embeddings (non-BEAST) can be added side by side later.
+- `cuttle predict --model-name {model_name}` looks the model back up by that same name
+  and runs it over `--input-dir` (default `results_dir/beast_frames`, the same
+  training-frame set from Phase 3 — full-video inference is a later step, once a
+  checkpoint is trained), writing under `{model_dir}/image_predictions/{input_dir.stem}`
+  by default (BEAST's own output layout, not covered by `cuttle_patterns/paths.py`) —
+  per-frame embeddings as `latents/{...}/{frame_stem}.npy` when `--save-latents` is
+  passed, reconstructed images when `--save-reconstructions` is. `--batch-size`/
+  `--save-latents`/`--save-reconstructions`/`--output-dir` pass straight through to
+  BEAST's own flags of the same purpose.
+- Structure this so alternative embeddings (non-BEAST) can be added side by side later —
+  `--model-name` and BEAST's own `image_predictions/{input_dir.stem}` layout already
+  namespace embeddings by model, so a differently-named model directory works the same
+  way downstream (Phases 5-6 just take whichever `model-dir` they're pointed at).
 
 ---
 
-## Phase 6: Dimensionality reduction & clustering
+## Phase 5: Dimensionality reduction — implemented, CLI-exposed
 
-**Goal:** turn 768-d embeddings into something explorable and clustered.
+**Goal:** project each frame's BEAST embedding (Phase 4) down to 2D, trying multiple
+hyperparameter settings side by side rather than picking one up front.
 
-- Apply UMAP and/or t-SNE to project embeddings to 2D.
-- Run k-means in the 2D projection as the initial clustering approach.
-- Store 2D coordinates + cluster labels per frame, joined to the same frame keys as
-  Phase 5.
+- Apply UMAP to the per-frame latents written by `cuttle predict` under
+  `beast_models/{model_dir}/image_predictions/beast_frames/`, sweeping hyperparameters
+  (`n_neighbors`, `min_dist`) across separate runs.
+- Exposed as `cuttle reduce --model-name {model_dir}`, via
+  `cuttle_patterns/cli/cmd_reduce.py`. `cuttle_patterns/embeddings.py` (shared with the
+  Phase 6 implementation below) loads every `.npy` latent under a model's
+  `image_predictions/{predictions_name}/latents/` tree into an `(n_frames, latent_dim)`
+  array plus row-aligned metadata parsed from each frame's path (`video_name` directory
+  → `day`/`tank`/`role`; `img{frame_number}.npy` filename → `frame_number`);
+  `cuttle_patterns/reduce.py` wraps `umap.UMAP` and assembles the output frame. Tests:
+  `tests/test_embeddings.py`, `tests/test_reduce.py`, `tests/cli/test_cmd_reduce.py`.
+- Output: one row per frame in `beast_models/{model_dir}/image_predictions/beast_frames/`,
+  with `umap_x`, `umap_y`, and per-frame metadata (`day`, `tank`, `role`, `frame_number`,
+  `video_name`), written to
+  `results_dir/beast_models/{model_dir}/reduce/umap_{hparams}.parquet` — one file per
+  hyperparameter setting (`{hparams}` encodes `n_neighbors`/`min_dist`, e.g.
+  `umap_nn15_md0.1.parquet`), so different UMAP runs can be compared rather than
+  overwriting each other. The `reduce/` subdirectory (rather than `umap/`) is deliberately
+  method-agnostic, so a non-UMAP reduction added later (e.g. t-SNE) can live alongside it
+  as `reduce/tsne_{hparams}.parquet` without a directory-layout change.
 
-**Open questions:**
-- Cluster in the 2D projection (simpler, what's currently planned) vs. in the original
-  768-d space (arguably more principled, but less directly tied to what's visualized) —
-  revisit if 2D clusters look unstable relative to structure visible in the high-d space.
+---
+
+## Phase 6: Clustering — implemented, CLI-exposed
+
+**Goal:** assign a discrete cluster label to every frame, as an additional attribute for
+the Phase 7 visualization to filter/color by.
+
+- Run clustering (k-means first) on the raw BEAST embeddings from Phase 4 (the same
+  `image_predictions/beast_frames/` latents Phase 5 reads, via the same
+  `cuttle_patterns/embeddings.py:load_latents`) — not the 2D UMAP projection — since
+  it's more principled to cluster in the space the embedding model actually produces
+  rather than a lossy 2D projection of it. Revisit if these clusters look unstable
+  relative to structure visible in the UMAP projection.
+- Exposed as `cuttle cluster --model-name {model_dir} --n-clusters {k}`, via
+  `cuttle_patterns/cli/cmd_cluster.py`. `cuttle_patterns/cluster.py` wraps
+  `sklearn.cluster.KMeans` (`run_kmeans`) and assembles the output frame
+  (`build_cluster_dataframe`); `--method` is dispatched through an explicit
+  `choices=['kmeans']` registry so a second method is a small, deliberate addition
+  rather than a silently-accepted unimplemented string. `--n-clusters` is required (no
+  universal default, unlike UMAP's hyperparameters); `--random-state` defaults to 42.
+  Tests: `tests/test_cluster.py`, `tests/cli/test_cmd_cluster.py`.
+- Output: one row per frame in `beast_models/{model_dir}/image_predictions/beast_frames/`,
+  with a `cluster` label plus the same `day`/`tank`/`role`/`frame_number`/`video_name`
+  metadata as the Phase 5 output, written to
+  `results_dir/beast_models/{model_dir}/clusters/{method}_{hparams}.parquet` (`{hparams}`
+  encodes `n_clusters`, e.g. `clusters/kmeans_k10.parquet`) — the same one-row-per-frame
+  shape as the Phase 5 output, so cluster labels are just another joinable attribute
+  rather than a replacement for the UMAP coordinates.
 
 ---
 
