@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 from bokeh.document import Document
 from bokeh.layouts import column, row
-from bokeh.models import CheckboxGroup, ColumnDataSource, Div, HoverTool, Select
+from bokeh.models import CheckboxGroup, ColumnDataSource, CustomJS, Div, HoverTool, Select
 from bokeh.palettes import Category20_20, Viridis256
 from bokeh.plotting import figure
 
@@ -20,14 +20,76 @@ from cuttle_patterns.dashboard import data
 
 BASE_SOURCE_COLUMNS = ('umap_x', 'umap_y', 'video_name', 'frame_number', 'day', 'tank', 'role')
 MAX_HOVER_TOOLTIPS = 3
+HOVER_DEBOUNCE_MS = 150
 
-HOVER_TOOLTIP = """
-<div style="max-width: 220px;">
-    <div><img src="/images/@image_relpath" style="width:100%; height:auto;"></div>
-    <div><b>video:</b> @video_name</div>
-    <div><b>frame:</b> @frame_number</div>
-    <div><b>day / tank / role:</b> @day / @tank / @role</div>
-</div>
+# Bokeh's native tooltips="<html>" would instantiate a fresh <img> per hit on every
+# mousemove hit-test, which at ~100k+ points meant sweeping the cursor across the cloud
+# could fire thousands of distinct image loads/decodes a minute — enough to crash the
+# browser tab over a long session. tooltips=None + this callback instead reuse a single
+# DOM node and only touch it (loading new images) after the cursor rests for
+# HOVER_DEBOUNCE_MS, capping the image-load rate independent of how fast the mouse moves.
+HOVER_CALLBACK_JS = """
+const indices = cb_data.index.indices;
+
+if (!window.__cuttleMouseListenerAdded) {
+    window.__cuttleMouseListenerAdded = true;
+    window.addEventListener('mousemove', (e) => {
+        window.__cuttleMouseX = e.clientX;
+        window.__cuttleMouseY = e.clientY;
+    });
+}
+
+if (indices.length === 0) {
+    clearTimeout(window.__cuttleHoverTimer);
+    window.__cuttleHoverKey = null;
+    const el = document.getElementById('cuttle-hover-tooltip');
+    if (el) el.style.display = 'none';
+    return;
+}
+
+const key = indices.slice(0, limit).join(',');
+if (key === window.__cuttleHoverKey) {
+    return;
+}
+
+clearTimeout(window.__cuttleHoverTimer);
+window.__cuttleHoverTimer = setTimeout(() => {
+    window.__cuttleHoverKey = key;
+
+    let el = document.getElementById('cuttle-hover-tooltip');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'cuttle-hover-tooltip';
+        el.style.position = 'fixed';
+        el.style.pointerEvents = 'none';
+        el.style.zIndex = '10000';
+        el.style.background = 'white';
+        el.style.border = '1px solid #ccc';
+        el.style.borderRadius = '4px';
+        el.style.padding = '4px';
+        el.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+        document.body.appendChild(el);
+    }
+
+    const rows = source.data;
+    let html = '';
+    for (const i of indices.slice(0, limit)) {
+        html += `
+            <div style="max-width:220px; margin-bottom:6px;">
+                <img src="/images/${rows['image_relpath'][i]}" style="width:100%; height:auto;">
+                <div><b>video:</b> ${rows['video_name'][i]}</div>
+                <div><b>frame:</b> ${rows['frame_number'][i]}</div>
+                <div>
+                    <b>day / tank / role:</b>
+                    ${rows['day'][i]} / ${rows['tank'][i]} / ${rows['role'][i]}
+                </div>
+            </div>`;
+    }
+    el.innerHTML = html;
+    el.style.display = 'block';
+    el.style.left = (window.__cuttleMouseX + 15) + 'px';
+    el.style.top = (window.__cuttleMouseY + 15) + 'px';
+}, debounce_ms);
 """
 
 
@@ -89,7 +151,11 @@ def make_document(doc: Document, results_dir: Path) -> None:
     plot.scatter(
         'umap_x', 'umap_y', source=source, color='color', size=4, alpha=0.6, line_color=None,
     )
-    plot.add_tools(HoverTool(tooltips=HOVER_TOOLTIP, limit=MAX_HOVER_TOOLTIPS))
+    hover_callback = CustomJS(
+        args=dict(source=source, limit=MAX_HOVER_TOOLTIPS, debounce_ms=HOVER_DEBOUNCE_MS),
+        code=HOVER_CALLBACK_JS,
+    )
+    plot.add_tools(HoverTool(tooltips=None, callback=hover_callback, limit=MAX_HOVER_TOOLTIPS))
 
     def _reset_selection() -> None:
         state['df'] = None
