@@ -22,6 +22,13 @@ BASE_SOURCE_COLUMNS = ('umap_x', 'umap_y', 'video_name', 'frame_number', 'day', 
 MAX_HOVER_TOOLTIPS = 3
 HOVER_DEBOUNCE_MS = 150
 
+# Used only for exactly-2-category columns (e.g. `role`): Category20's own first two
+# colors are two shades of blue, easy to blend together at a glance or when zoomed out.
+# For higher-cardinality columns (e.g. `video_name`) Category20 is kept as-is instead —
+# its light/dark pairing is useful there, since alphabetically adjacent categories (a
+# session's resident/intruder video pair) end up as the same hue at different lightness.
+BINARY_CATEGORICAL_COLORS = ('#762a83', '#1b7837')  # purple, green
+
 # Bokeh's native tooltips="<html>" would instantiate a fresh <img> per hit on every
 # mousemove hit-test, which at ~100k+ points meant sweeping the cursor across the cloud
 # could fire thousands of distinct image loads/decodes a minute — enough to crash the
@@ -96,8 +103,9 @@ window.__cuttleHoverTimer = setTimeout(() => {
 def _categorical_colors(series: pd.Series) -> list[str]:
     """Map a column's values to hex colors from a repeating discrete palette."""
     categories = sorted(series.astype(str).unique())
+    palette = BINARY_CATEGORICAL_COLORS if len(categories) == 2 else Category20_20
     color_by_category = {
-        category: Category20_20[i % len(Category20_20)] for i, category in enumerate(categories)
+        category: palette[i % len(palette)] for i, category in enumerate(categories)
     }
     return [color_by_category[value] for value in series.astype(str)]
 
