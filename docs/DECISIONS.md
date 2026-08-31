@@ -491,7 +491,7 @@ from the start of the project.
 ## UI framework: Plotly, exact app structure deferred
 
 **Date:** 2026-07-08
-**Status:** partially decided
+**Status:** superseded — see "UI framework: Bokeh, programmatic Server" below.
 
 **Decision:** Build the interactive embedding explorer (Phase 7) on Plotly. Whether that
 means Dash, a lighter Plotly-based setup, or something else built around Plotly figures
@@ -500,6 +500,68 @@ is intentionally left open until we're actually building the UI.
 **Why:** Plotly's hover/event model is a natural fit for "hover a dot, show the
 corresponding frame image" — the core interaction we need. The specific app framework
 choice matters less right now than getting the data pipeline (Phases 0-6) working.
+
+---
+
+## UI framework: Bokeh, programmatic Server, not the bare `bokeh serve` CLI
+
+**Date:** 2026-08-31
+**Status:** decided
+
+**Decision:** Build the interactive embedding explorer (Phase 7, `cuttle serve`) on Bokeh
+instead of Plotly, with the app launched via a programmatic `bokeh.server.server.Server`
+(`cuttle_patterns/dashboard/launch.py`) rather than the `bokeh serve` CLI subprocess
+pattern `cuttle train`/`cuttle predict` use for BEAST's own CLI.
+
+**Why:** Bokeh's WebGL scatter (`figure(output_backend='webgl')`) comfortably handles the
+target ~200-300k points; a bare Canvas-backed Plotly/Bokeh scatter would not. A
+programmatic `Server` lets `launch.py` register an extra static-file route
+(`/images/...` → `results_dir/beast_frames/`) that hover-triggered image loads reference
+directly by URL (`/images/@image_relpath`) — the browser requests and caches each image,
+no per-hover server round trip. (The client-side mechanism that references this route
+evolved from a static `HoverTool` HTML tooltip to a debounced `CustomJS` callback — see
+"Hover images: debounced CustomJS callback" below — but the static route itself, and the
+reason a programmatic `Server` is needed to add it, is unchanged.) The `bokeh serve` CLI
+doesn't expose a way to add that route, which is why this deviates from the
+subprocess-wrapper pattern used elsewhere; `cuttle serve` still calls `run_server`
+directly rather than shelling out, since it wraps our own code, not an external CLI.
+
+**Trade-off:** switching the color-by attribute uses a plain Python `on_change` callback
+that recomputes a hex-color column and pushes it to the `ColumnDataSource` over the
+websocket (`source.patch`), rather than precomputing one color column per attribute
+server-side and swapping between them with a client-side `CustomJS` callback. The latter
+would make color switching instant with zero data resent; the former is simpler code at
+the cost of a brief (sub-second to ~1s at 300k rows) lag per switch. Accepted for now —
+revisit if that lag is annoying in practice.
+
+---
+
+## Hover images: debounced CustomJS callback, not a static HTML tooltip template
+
+**Date:** 2026-08-31
+**Status:** decided
+
+**Decision:** The explorer's `HoverTool` (`cuttle_patterns/dashboard/app.py`) uses
+`tooltips=None` plus a `CustomJS` callback (`HOVER_CALLBACK_JS`) that reuses a single
+persistent `<div>` DOM node, rather than Bokeh's native `tooltips="<html>"` templating
+(which was the original implementation — see the "UI framework: Bokeh" entry above). The
+callback only updates that div's contents (loading up to `HoverTool.limit` new images)
+after the cursor has rested on the same hit point(s) for `HOVER_DEBOUNCE_MS` (150ms);
+moving off a point hides the div immediately, no debounce needed for that direction.
+
+**Why:** in real use at ~95k points, sweeping the cursor across a dense region of the
+scatter plot crashed the browser tab ("Aw, Snap!") after sustained hovering, with
+`WebSocket connection closed: code=1001` the only signal on the server side. Bokeh's
+native HTML-template tooltip instantiates a fresh `<img>` element on essentially every
+mousemove hit-test — with a dense cloud, fast mouse movement was firing thousands of
+distinct image loads/decodes per minute, which is what was exhausting the tab's memory
+over a sustained session. There's no browser- or Bokeh-level setting to cap this (HTTP
+`Cache-Control` headers only affect re-fetching, not how long a rendered image's decoded
+bitmap stays resident); the fix had to reduce the *rate* of new image loads directly.
+Debouncing in a `CustomJS` callback does this — the callback still runs on every
+mousemove (cheap: a few conditional checks), but the expensive part (fetching/decoding a
+new image, touching the DOM) only happens once per pause, independent of cursor speed.
+Confirmed fixed against the reporting user's real session.
 
 ---
 
