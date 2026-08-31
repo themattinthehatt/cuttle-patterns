@@ -21,6 +21,14 @@ from cuttle_patterns.dashboard.app import make_document
 
 DEFAULT_PORT = 5006
 
+# Bokeh's default (300s) is tuned for short-lived web-app sessions; this is a local
+# analysis tool a user is expected to leave open, hover/study a point for a while, or
+# come back to after a break, with no server round trip in between. A short expiration
+# there means the websocket token goes stale, and the client's silent reconnect attempt
+# fails server-side with "Token is expired" — logged as an error even though the page
+# transparently reloads and keeps working. A generous expiration (1 day) avoids that.
+SESSION_TOKEN_EXPIRATION_SECONDS = 24 * 60 * 60
+
 
 def run_server(results_dir: Path, port: int = DEFAULT_PORT, show: bool = True) -> None:
     """Start the embedding explorer and block until interrupted.
@@ -40,6 +48,7 @@ def run_server(results_dir: Path, port: int = DEFAULT_PORT, show: bool = True) -
         port=port,
         extra_patterns=extra_patterns,
         allow_websocket_origin=[f'localhost:{port}', f'127.0.0.1:{port}'],
+        session_token_expiration=SESSION_TOKEN_EXPIRATION_SECONDS,
     )
     server.start()
     if show:
