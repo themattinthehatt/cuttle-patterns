@@ -15,6 +15,7 @@ authors = [
 keywords = ["machine learning", "computer_vision", "behavior_analysis"]
 
 dependencies = [
+    "bokeh",
     "matplotlib",
     "numpy (>=2.0.0)",
     "opencv-python-headless",
