@@ -293,19 +293,69 @@ jets) elsewhere in the dataset.
 
 ---
 
-## Phase 3: Representative frame extraction
+## Phase 3: Representative frame extraction — implemented, CLI-exposed
 
 **Goal:** turn aligned videos into a training set of still frames for BEAST.
 
-- Define a sampling strategy per video: start with simple uniform subsampling at a fixed
-  interval as a baseline; consider motion- or change-based keyframe selection later if
-  uniform sampling over/under-represents static periods.
-- Output: a frame manifest (session, fish, source frame index, path/tensor) under
-  `results_dir`.
+Sampling strategy per video, implemented in `cuttle_patterns/preprocessing/extract.py` and
+exposed as `cuttle extract`:
+
+1. Remove frames that are blank (per `data_dir`'s `_black_frames.txt`), have any
+   tail/neck keypoint likelihood below 0.9 (per `--pose-dir`'s `{video_name}.csv`), or
+   have a rectangle (from `cuttle inscribe`'s `{video_name}.csv` in `--input-dir`) whose
+   long edge is less than 50% of the neck-tail distance (only checked where likelihood
+   is already OK) — `compute_filtered_frame_mask`, with the rectangle check factored out
+   as `compute_small_rectangle_mask`. The blank/likelihood criteria remove many frames
+   where part of the mantle is occluded, or where two cuttlefish are visible, per the
+   labeling strategy behind Phase 2b's pose predictions; the rectangle-size criterion was
+   found via QC on real `cuttle extract` output — see the "Small-rectangle filter" entry
+   in [DECISIONS.md](DECISIONS.md) — and catches a body clearly longer than the box
+   inscribed around it (a sizing failure `cuttle inscribe` itself doesn't yet detect).
+2. From the survivors, keep only frames whose immediate neighbors (n-1, n+1) also
+   survived step 1 — `build_candidate_frame_idxs` — so frame n is only a candidate if
+   both its neighbors are themselves valid frames. Frame 0 and the last frame are never
+   candidates (one neighbor doesn't exist). This matters because BEAST exports each
+   selected anchor frame together with its ±1 neighbors as temporal context (step 3
+   below), so those neighbors need to be valid frames too, not just the anchor itself.
+3. From that candidate set, select diverse anchor frames during movement using BEAST's
+   own approach (motion-energy thresholding, PCA, k-means) —
+   `select_frame_idxs_kmeans_restricted`, a fork of
+   `beast.preprocess.extraction.select_frame_idxs_kmeans` restricted so the
+   motion-energy percentile, PCA, and k-means steps only ever operate over
+   `candidate_idxs` — upstream's only subsetting knob, a contiguous fractional
+   `frame_range`, can't express an arbitrary/non-contiguous allowed-frame set, so a true
+   restriction isn't possible by calling that function directly. `frames_per_video`
+   (`-n`, default 1000) is a maximum: a video with fewer surviving candidates just uses
+   all of them, with a printed warning, rather than raising.
+
+`beast.preprocess.extraction.export_frames` and `beast.video.compute_video_motion_energy`
+are reused unmodified for exporting frames (with ±1 context frames, matching BEAST's own
+output layout: `img{frame_idx}.png` + `selected_frames.csv` per video) and computing
+motion energy, respectively. Keypoint-likelihood filtering itself needed no new logic
+either — it reuses `pose.interpolate_pose`'s existing `is_interpolated` return value
+(already exactly "this frame's likelihood was too low") as the filter mask.
+
+Unlike `cuttle inscribe`/`cuttle overlay`, where pose predictions are an optional
+refinement with a PCA-based fallback, `--pose-dir` has **no default** and a video with no
+matching pose CSV is skipped (with a printed warning) rather than extracted without
+likelihood filtering — keypoint filtering is a required part of this algorithm, not an
+optional one. A video with no matching rectangle-geometry CSV in `--input-dir` (should
+only happen if `cuttle inscribe` was never run for it) is skipped the same way.
+
+Output: per video, `results_dir/beast_frames/{video_name}/img{frame_idx}.png` (anchor
+frames + context) and `selected_frames.csv` (anchor frames only); across all videos, a
+combined frame manifest at `results_dir/manifests/extract.parquet` (`session_id`,
+`fish_id`, `frame_idx`, `image_path`, one row per selected anchor frame).
+
+Tests: `tests/preprocessing/test_extract.py`, `tests/cli/test_cmd_extract.py`.
 
 **Open questions:**
-- Sampling rate/interval — depends on fps (unknown) and how quickly patterns change.
-- Whether to weight sampling toward moments of pattern change (harder, deferred).
+- `frames_per_video` (1000), the motion-energy percentile threshold (50th/75th,
+  unchanged from BEAST upstream), and `resize_dims` (32, hardcoded rather than a CLI
+  flag) are all untuned against real data so far — revisit once real aligned videos +
+  pose predictions are available to check the selected frames against.
+- Whether 1000 frames/video, across all sessions, gives BEAST enough (and sufficiently
+  non-redundant) training data — deferred to Phase 4.
 
 ---
 
@@ -315,20 +365,39 @@ jets) elsewhere in the dataset.
 loss) on our own unlabeled aligned frames, per the paper's experiment-specific pretraining
 design — not reusing a checkpoint trained on a different dataset.
 
+**Status:** first backbone trained is a cheaper ResNet18 autoencoder, not yet the ViT —
+see the "Backbone sequencing" entry in [DECISIONS.md](DECISIONS.md). `cuttle train`/
+`cuttle predict` (`cuttle_patterns/cli/cmd_train.py`/`cmd_predict.py`) are thin
+subprocess wrappers around BEAST's own `beast train`/`beast predict` CLI — `cuttle`
+resolves `results_dir` the usual way and passes it to BEAST via `--data`/`--output`, so
+the checked-in config ([`configs/beast_resnet_ae.yaml`](../configs/beast_resnet_ae.yaml))
+stays machine-agnostic. See README.md's pipeline step 5 for the commands. Tests:
+`tests/cli/test_cmd_train.py`, `tests/cli/test_cmd_predict.py`.
+
 - Install/import `beast-backbones`; use its training entry point (library call or CLI)
   rather than reimplementing the ViT/MAE/contrastive loop.
-- Prepare data in whatever input format `beast-backbones` expects (frames + temporal
-  neighbor structure for the contrastive sampling) — to be confirmed once we're working
-  against the package.
+- Data-loading contract, confirmed: `data.data_dir` in the BEAST config points at a
+  directory `beast`'s `BaseDataset` recursively globs for `*.png` — `cuttle extract`'s
+  `results_dir/beast_frames` tree (per-video subdirectories of exported frames) works
+  directly, no reshaping needed. This also means every exported frame (anchors *and*
+  their ±1 context neighbors) is used for training, not just the ones listed in each
+  video's `selected_frames.csv`.
 - Train on the cloud multi-GPU machine (code should assume a local-style multi-GPU
   workstation — no SLURM/job-array abstractions needed, see
   [DECISIONS.md](DECISIONS.md)).
 - Checkpointing and basic experiment tracking (what config/data produced which
-  checkpoint).
+  checkpoint) — currently just BEAST's own run directory, named via `cuttle train
+  --model-name` (saved to `results_dir/beast_models/{model_name}`); no `cuttle`-side
+  tracking layer beyond that naming convention yet.
 
 **Open questions:**
-- `beast-backbones` package's exact data-loading contract and CLI surface (need to read
-  its docs/source once the data pipeline is ready to feed it).
+- When to train the ViT (with MAE + temporal-contrastive loss) originally targeted for
+  this phase — after the ResNet-AE pipeline is validated end to end (Phase 5/6/7 working
+  against real embeddings), per the sequencing decision in DECISIONS.md.
+- `beast-backbones`'s temporal-contrastive-specific data requirements (neighbor
+  structure) haven't been exercised yet, since the first config trained has no
+  contrastive loss (`use_infoNCE: False` equivalent for the resnet-AE) — revisit once the
+  ViT config is in use.
 
 ---
 

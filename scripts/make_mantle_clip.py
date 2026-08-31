@@ -17,11 +17,11 @@ import subprocess
 from pathlib import Path
 
 from cuttle_patterns.config import load_config
-
-GIF_FPS = 15
-GIF_SCALE_WIDTH = 320
-VIDEO_CRF = 18
-VIDEO_PRESET = 'medium'
+from cuttle_patterns.visualization.video_utils import (
+    VIDEO_CRF,
+    VIDEO_PRESET,
+    build_gif_command,
+)
 
 
 def format_seconds_for_filename(seconds: float) -> str:
@@ -91,20 +91,6 @@ def build_clip_command(
         '-map', '[v]',
         '-c:v', 'libx264', '-crf', str(VIDEO_CRF), '-preset', VIDEO_PRESET,
         str(output_path),
-    ]
-
-
-def build_gif_command(mp4_path: Path, gif_path: Path) -> list[str]:
-    """Build the ffmpeg command that converts a clip to a palette-optimized gif."""
-    filter_complex = (
-        f'fps={GIF_FPS},scale={GIF_SCALE_WIDTH}:-1:flags=lanczos,split[s0][s1];'
-        f'[s0]palettegen[p];[s1][p]paletteuse'
-    )
-    return [
-        'ffmpeg', '-y', '-i', str(mp4_path),
-        '-vf', filter_complex,
-        '-loop', '0',
-        str(gif_path),
     ]
 
 

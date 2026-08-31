@@ -6,6 +6,164 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Small-rectangle filter: exclude frames where the box is much shorter than the body
+
+**Date:** 2026-08-28
+**Status:** decided, implemented
+
+**Decision:** Add a third criterion to `cuttle extract`'s frame-filtering step (alongside
+blank frames and low keypoint likelihood): exclude a frame if, among frames where both
+tail/neck keypoints meet the likelihood threshold, the inscribed rectangle's long edge is
+less than 50% of the neck-tail distance. Implemented as
+`extract.compute_small_rectangle_mask`, called from `extract.compute_filtered_frame_mask`
+whenever both a pose CSV and a rectangle-geometry CSV are available for the video.
+
+**Why:** While QC'ing `cuttle extract`'s output on real data, a scratch script
+(`scratch/qc_small_rectangles.py`) sampling example frames from each video's
+`_overlay.mp4` surfaced a cheap, reliable defect signal: frames where `cuttle inscribe`'s
+rectangle is clearly too short for the body it's supposed to bound, visible immediately
+by eye against the overlay's keypoints. Across all 32 real videos available at the time,
+6,921/1,437,351 frames (0.5%) were flagged at the 50% threshold — worth excluding from
+BEAST's training set (bad alignment geometry would otherwise leak orientation/scale noise
+into pattern-focused training) at negligible cost to how much data remains.
+
+**Alternatives considered:** fixing the underlying `cuttle inscribe` sizing bug that
+produces these rectangles — not pursued yet, since the QC script's job was to first
+quantify and visualize the problem, not diagnose its root cause; filtering is the correct
+short-term mitigation regardless of what that root cause turns out to be, and doesn't
+block making progress on Phase 3/4 while it's investigated.
+
+**Trade-off / known risk:** 50% was chosen directly from the QC script's default (an
+initial guess later tightened from 75% after visual review of examples at that looser
+threshold), not derived from a labeled ground truth of "small enough to hurt training" —
+revisit if the flagged/kept split still looks wrong on visual spot-check. The check only
+runs where likelihood is already high, so it can't catch a genuinely small rectangle
+alongside a genuinely wrong (but confidently predicted) keypoint pair; that failure mode
+is unaddressed by this or any other current filter.
+
+---
+
+## `cuttle train`/`cuttle predict`: subprocess wrappers around BEAST's own CLI
+
+**Date:** 2026-08-28
+**Status:** decided, implemented
+
+**Decision:** Wrap BEAST's own `beast train`/`beast predict` CLI commands in
+`cuttle train`/`cuttle predict` (`cuttle_patterns/cli/cmd_train.py`/`cmd_predict.py`) by
+building the equivalent `beast` argv and running it as a subprocess (stdout/stderr
+inherited, so BEAST's own training/inference logs stream live) — not by calling
+`beast.api.model.Model` directly in-process. `cuttle` resolves `results_dir` the usual
+config-or-override way and passes it to BEAST via its own `--data`/`--output` flags
+(`beast train`) and `--model`/`--input` (`beast predict`), so the checked-in configs
+under `configs/` can stay machine-agnostic instead of committing one machine's absolute
+`data_dir`. Models are saved to `results_dir/beast_models/{model_name}` — `--model-name`
+is required on `cuttle train` (no default) and looked up again by `cuttle predict`, so
+the two commands share one naming scheme. `cuttle train` also passes through BEAST's
+`--gpus`/`--nodes`/`--overrides` flags, since real training targets the multi-GPU cloud
+machine (see the "Compute" entry below).
+
+**Why:** A subprocess wrapper is a few dozen lines and reuses everything BEAST's own CLI
+commands already do correctly (config loading/validation via pydantic, output-dir setup,
+its own logging setup) — calling `Model` directly would mean reimplementing that
+scaffolding in `cuttle_patterns` for no real benefit, and would couple this repo to
+BEAST's internal API surface rather than its public CLI contract, which is more likely to
+stay stable across `beast-backbones` versions.
+
+**Alternatives considered:** calling `beast.api.model.Model.from_config(...).train(...)`/
+`Model.from_dir(...).predict_images(...)` directly — rejected per above; capturing
+subprocess output instead of inheriting stdout/stderr — rejected, since BEAST's training
+logs are long-running and meant to be watched live, not buffered until the process exits.
+
+**Trade-off / known risk:** errors surface as BEAST's own CLI error output plus a bare
+nonzero exit code propagated from `cuttle`, not a `cuttle`-specific error message (except
+the two fail-fast checks `cuttle` does itself: `beast` missing from `PATH`, and
+`cuttle predict`'s model directory not existing). `cuttle train` warns but doesn't block
+when `--model-name` points at a non-empty existing directory, since BEAST's CLI doesn't
+support resuming (a fresh run just starts training from scratch again) — re-running with
+the same name is on the user to intend.
+
+---
+
+## Backbone sequencing: train a ResNet18 autoencoder before the ViT
+
+**Date:** 2026-08-28
+**Status:** decided, implemented (config only — training itself run manually via BEAST's
+own CLI, not yet executed against real data)
+
+**Decision:** Train a ResNet18 autoencoder (`configs/beast_resnet_ae.yaml`,
+`model_class: resnet`, no contrastive loss) as the first BEAST backbone, rather than
+going straight to the ViT + MAE + temporal-contrastive design that's the eventual target
+(see "Embedding backbone" below and [PHASES.md](PHASES.md) Phase 4).
+
+**Why:** The ViT is meaningfully more expensive to train. Getting the full pipeline
+(Phase 4 training → Phase 5 embedding extraction → Phase 6 clustering → Phase 7
+visualization) running end to end against a cheap backbone first surfaces pipeline/data
+issues (data-loading contract, output format, downstream code assumptions) without
+paying the ViT's training cost while still iterating on those issues.
+
+**Alternatives considered:** training the ViT first, per the original Phase 4 plan —
+not rejected outright, just deferred: still the intended production backbone, to be
+trained once the rest of the pipeline is validated against the ResNet-AE's embeddings.
+
+**Trade-off / known risk:** the ResNet-AE has no temporal-contrastive loss, so it won't
+exercise `beast-backbones`'s contrastive-specific data requirements (temporal neighbor
+sampling) — those remain unvalidated against our data until the ViT config is actually
+trained. Downstream code (Phase 5 embedding storage, Phase 6 clustering) should avoid
+hardcoding the 768-d ViT embedding size, since the ResNet-AE's `num_latents: 16` gives a
+different dimensionality.
+
+---
+
+## Phase 3 frame selection: filter-then-candidate-restrict BEAST's own kmeans selection
+
+**Date:** 2026-08-28
+**Status:** decided, implemented
+
+**Decision:** For `cuttle extract` (Phase 3), select BEAST training frames per video in
+three steps — (1) remove blank/low-likelihood frames, (2) keep only survivors whose
+immediate neighbors also survived, as the candidate set, (3) run a fork of BEAST's
+`select_frame_idxs_kmeans` (motion-energy threshold → PCA → k-means)
+restricted to that candidate set — rather than calling BEAST's function directly and
+filtering its output afterward. `select_frame_idxs_kmeans`'s only subsetting knob is
+`frame_range`, a contiguous fractional window (e.g. `[0.25, 0.75]`); it can't express an
+arbitrary/non-contiguous allowed-frame set, so filtering *after* the fact wouldn't have
+worked either — the high-motion-energy percentile and the k-means cluster centers
+themselves need to be computed only over allowed frames, or a disallowed frame could still
+end up as the nearest-frame-to-a-cluster-center pick. `select_frame_idxs_kmeans_restricted`
+(`cuttle_patterns/preprocessing/extract.py`) is that fork: same algorithm, but the
+percentile/PCA/k-means steps only ever see `candidate_idxs`. Everything else BEAST
+offers — `compute_video_motion_energy`, `export_frames` — is reused unmodified; the one
+private helper upstream (`_run_kmeans`) is not imported (its logic — `KMeans(...,
+n_init='auto')` — is three lines, inlined directly with `random_state=0` instead of
+upstream's global `np.random.seed(seed)` + unseeded `KMeans`).
+
+**Why:** Keeps the diversity-selection algorithm identical to BEAST's own (same
+motion-energy-driven PCA/k-means logic Phase 4 training will implicitly assume), while
+still guaranteeing no blank or low-confidence-pose frame — and no frame whose exported
+temporal-context neighbor would be blank/low-confidence — ever ends up in the training
+set. Reusing `pose.interpolate_pose`'s existing `is_interpolated` return value (already
+exactly "this frame's likelihood was too low") for the likelihood-filter mask avoided
+writing new comparison logic for something already computed correctly in Phase 2b.
+
+**Alternatives considered:** monkeypatching or subclassing BEAST's `extract_frames`/
+`select_frame_idxs_kmeans` — rejected, more fragile than a straight fork given the
+function's small size and that a private helper (`_run_kmeans`) would still need
+reaching into; filtering `select_frame_idxs_kmeans`'s *output* against the allowed set —
+rejected as described above, since it doesn't stop a disallowed frame from
+being what a cluster center resolves to, only from being an initial high-motion-energy
+candidate.
+
+**Trade-off / known risk:** `--pose-dir` has no default and a video with no matching pose
+CSV is skipped entirely (warned, not extracted with blank-only filtering) — a deliberate
+asymmetry with `cuttle inscribe`/`cuttle overlay`'s optional-pose-with-PCA-fallback
+design, since likelihood filtering is required here, not an optional refinement.
+`frames_per_video`, the motion-energy percentile thresholds, and `resize_dims` (32,
+hardcoded) are all carried over from BEAST's defaults/upstream logic unchanged and
+untuned against real aligned videos — revisit once real data is available (see
+[PHASES.md](PHASES.md) Phase 3 open questions).
+
+---
+
 ## `scripts/` directory: working scripts not yet promoted to `cuttle_patterns/` + the CLI
 
 **Date:** 2026-08-27

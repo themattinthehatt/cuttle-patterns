@@ -22,6 +22,10 @@ conda activate cuttle
 pip install -e ".[dev]"
 ```
 
+`beast-backbones v2.0.0` (required) isn't on PyPI yet, so install it from a git clone first — see 
+the [BEAST README](https://github.com/paninski-lab/beast#installation) for the exact steps
+(`pip install lightning poetry-core` then `pip install -e . --no-build-isolation`).
+
 Each machine needs a local config file at `~/.cuttle-patterns/config.yaml` pointing to
 where data and results live. Create/update it with:
 
@@ -124,3 +128,74 @@ since these are full raw-resolution videos and can otherwise get large; tune siz
 quality with `--crf` (lower is higher quality/larger file, default 28). As with `cuttle
 inscribe`, pass `--skip-existing` to leave a video's `{video_name}_overlay.mp4` alone if
 it already exists, rather than re-encoding it.
+
+### 4. `cuttle extract`
+
+Selects a diverse, representative set of still frames from the aligned crop videos
+(`results_dir/rectangles/{video_name}.mp4`) to train BEAST (Phase 4) on. Per video:
+
+1. Remove frames that are blank, have any tail/neck keypoint likelihood below 0.9, or
+   have a rectangle (from `cuttle inscribe`) whose long edge is less than 50% of the
+   neck-tail distance — a body clearly longer than the box drawn around it, found via QC
+   on real data (`scratch/qc_small_rectangles.py`).
+2. Keep only the survivors whose immediate neighbors also survived step 1, so every frame
+   BEAST will see as temporal context is itself a valid frame.
+3. From that candidate set, select anchor frames during movement via motion-energy
+   thresholding, PCA, and k-means — a fork of
+   `beast.preprocess.extraction.select_frame_idxs_kmeans` (BEAST v2.0.0) restricted to
+   only ever pick anchors from the candidate set.
+
+```bash
+cuttle extract --pose-dir /path/to/pose/predictions
+```
+
+`--pose-dir` is **required, with no default** — keypoint-likelihood and rectangle-size
+filtering are required parts of the algorithm here, not an optional refinement like in
+`cuttle inscribe`/`cuttle overlay`. A video with no matching `{video_name}.csv` in
+`--pose-dir`, no matching `{video_name}.csv` rectangle geometry in `--input-dir` (written
+alongside the video by `cuttle inscribe`), or a missing blank-frames `.txt` in `data_dir`
+is skipped/warned about rather than silently including unfiltered frames.
+
+For each video, writes `results_dir/beast_frames/{video_name}/img{frame_idx}.png` for
+every selected anchor frame plus its immediate neighbors (context for BEAST's temporal
+training), and a `selected_frames.csv` listing just the anchor frames — matching BEAST's
+own `extract_frames` output layout. Across all videos, also writes a combined
+`results_dir/manifests/extract.parquet` (`session_id`, `fish_id`, `frame_idx`,
+`image_path`, one row per selected anchor frame).
+
+`-n`/`--frames-per-video` caps the number of anchor frames selected per video (default 1000) — 
+a maximum, not an exact count: a video with fewer surviving candidate frames than
+that just uses all of them, with a printed warning. As with the earlier steps,
+`--skip-existing` skips a video whose `beast_frames/{video_name}/selected_frames.csv`
+already exists, and `--video-path`/`--pose-path` process a single video against an
+explicit pose CSV instead of scanning `--input-dir` (default `results_dir/rectangles`).
+
+### 5. `cuttle train` / `cuttle predict`
+
+Thin wrappers around BEAST's own `beast train`/`beast predict` CLI (`beast-backbones`
+must be installed, which it is as a dependency of this package) — `cuttle` just resolves
+`results_dir` the usual way and passes it to BEAST via its own `--data`/`--output`
+flags, so the checked-in configs under `configs/` (e.g. `configs/beast_resnet_ae.yaml`)
+can stay machine-agnostic instead of hardcoding a `data_dir`.
+
+```bash
+cuttle train --config configs/beast_resnet_ae.yaml --model-name resnet-ae-v1
+cuttle predict --model-name resnet-ae-v1 --save-latents
+```
+
+`configs/beast_resnet_ae.yaml` is a ResNet18 autoencoder — cheaper to train than the
+ViT + MAE + temporal-contrastive architecture that's the eventual target (see
+[docs/DECISIONS.md](docs/DECISIONS.md)), so it's the first backbone trained to get the
+rest of the pipeline running end to end; a ViT config will follow once that's validated.
+
+`cuttle train` saves to `results_dir/beast_models/{model_name}` (`--model-name` is
+required, no default); `cuttle predict` looks a model back up by that same name. Both
+default `--input-dir` to `results_dir/beast_frames` (i.e. the training-frame set from
+step 4, not full videos — full-video inference is a later step, once a checkpoint is
+trained). `--gpus`/`--nodes`/`--overrides` on `cuttle train`, and `--batch-size`/
+`--save-latents`/`--save-reconstructions`/`--output-dir` on `cuttle predict`, pass
+straight through to BEAST's own flags of the same purpose.
+
+`cuttle predict` writes under `{model_dir}/image_predictions/{input_dir.stem}` by
+default — per-frame embeddings as `latents/{...}/{frame_stem}.npy` when
+`--save-latents` is passed, reconstructed images when `--save-reconstructions` is.
