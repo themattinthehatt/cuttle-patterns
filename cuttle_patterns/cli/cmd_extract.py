@@ -4,18 +4,15 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import FILENAME_PATTERN, read_blank_frame_indices
 from cuttle_patterns.preprocessing.extract import (
     DEFAULT_FRAMES_PER_VIDEO,
-    MANIFEST_RELPATH,
     build_extraction_manifest,
     extract_video_frames,
 )
-
-INPUT_RELPATH = Path('rectangles')
-OUTPUT_RELPATH = Path('beast_frames')
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -46,14 +43,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         metavar='PATH',
         help=f'directory of aligned videos to select frames from; defaults to '
-        f'results_dir/{INPUT_RELPATH}',
+        f'results_dir/{paths.RECTANGLES_RELPATH}',
     )
     parser.add_argument(
         '--output-dir',
         type=Path,
         metavar='PATH',
         help=f'directory to write per-video frame subdirectories into; defaults to '
-        f'results_dir/{OUTPUT_RELPATH}',
+        f'results_dir/{paths.BEAST_FRAMES_RELPATH}',
     )
     parser.add_argument(
         '--pose-dir',
@@ -108,8 +105,13 @@ def cmd_extract(args: argparse.Namespace) -> None:
         data_dir = args.data_dir if args.data_dir is not None else config.data_dir
         results_dir = args.results_dir if args.results_dir is not None else config.results_dir
 
-    input_dir = args.input_dir if args.input_dir is not None else results_dir / INPUT_RELPATH
-    output_dir = args.output_dir if args.output_dir is not None else results_dir / OUTPUT_RELPATH
+    input_dir = (
+        args.input_dir if args.input_dir is not None else results_dir / paths.RECTANGLES_RELPATH
+    )
+    output_dir = (
+        args.output_dir if args.output_dir is not None
+        else results_dir / paths.BEAST_FRAMES_RELPATH
+    )
 
     if args.video_path is not None:
         video_paths = [args.video_path]
@@ -181,7 +183,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
         return
 
     manifest = build_extraction_manifest(rows)
-    manifest_path = results_dir / MANIFEST_RELPATH
+    manifest_path = results_dir / paths.EXTRACT_MANIFEST_RELPATH
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest.to_parquet(manifest_path, index=False)
     print(f'Manifest written to {manifest_path}')

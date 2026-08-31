@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import find_raw_videos
@@ -14,9 +15,6 @@ from cuttle_patterns.preprocessing.align import (
     align_video,
 )
 from cuttle_patterns.preprocessing.inscribe import DEFAULT_ASPECT_RATIO, DEFAULT_THRESHOLD
-
-OUTPUT_RELPATH = Path('rectangles')
-POSE_RELPATH = Path('pose')
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -47,7 +45,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         metavar='PATH',
         help=f'directory to write {{video_name}}.mp4/.csv into; defaults to '
-        f'results_dir/{OUTPUT_RELPATH}',
+        f'results_dir/{paths.RECTANGLES_RELPATH}',
     )
     parser.add_argument(
         '--video-path',
@@ -65,7 +63,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         metavar='PATH',
         help=f'directory containing {{video_name}}.csv pose predictions (see '
-        f'cuttle_patterns.preprocessing.pose); defaults to results_dir/{POSE_RELPATH}. '
+        f'cuttle_patterns.preprocessing.pose); defaults to results_dir/{paths.POSE_RELPATH}. '
         f'Videos with no matching pose file fall back to the Phase 2a PCA-based path.',
     )
     parser.add_argument(
@@ -135,8 +133,11 @@ def cmd_inscribe(args: argparse.Namespace) -> None:
         data_dir = args.data_dir if args.data_dir is not None else config.data_dir
         results_dir = args.results_dir if args.results_dir is not None else config.results_dir
 
-    output_dir = args.output_dir if args.output_dir is not None else results_dir / OUTPUT_RELPATH
-    pose_dir = args.pose_dir if args.pose_dir is not None else results_dir / POSE_RELPATH
+    output_dir = (
+        args.output_dir if args.output_dir is not None
+        else results_dir / paths.RECTANGLES_RELPATH
+    )
+    pose_dir = args.pose_dir if args.pose_dir is not None else results_dir / paths.POSE_RELPATH
 
     if args.video_path is not None:
         video_paths = [args.video_path]

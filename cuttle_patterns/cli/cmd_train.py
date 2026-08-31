@@ -6,11 +6,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
-
-INPUT_RELPATH = Path('beast_frames')
-MODEL_RELPATH = Path('beast_models')
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -40,14 +38,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         '--model-name',
         required=True,
-        help=f'name for this model; saved to results_dir/{MODEL_RELPATH}/{{model_name}}',
+        help=f'name for this model; saved to results_dir/{paths.BEAST_MODELS_RELPATH}/'
+        f'{{model_name}}',
     )
     parser.add_argument(
         '--input-dir',
         type=Path,
         metavar='PATH',
         help=f'training frames directory, passed to beast train as --data; defaults to '
-        f'results_dir/{INPUT_RELPATH}',
+        f'results_dir/{paths.BEAST_FRAMES_RELPATH}',
     )
     parser.add_argument(
         '--gpus',
@@ -88,8 +87,10 @@ def cmd_train(args: argparse.Namespace) -> None:
             sys.exit(1)
         results_dir = config.results_dir
 
-    input_dir = args.input_dir if args.input_dir is not None else results_dir / INPUT_RELPATH
-    model_dir = results_dir / MODEL_RELPATH / args.model_name
+    input_dir = (
+        args.input_dir if args.input_dir is not None else results_dir / paths.BEAST_FRAMES_RELPATH
+    )
+    model_dir = results_dir / paths.BEAST_MODELS_RELPATH / args.model_name
 
     if model_dir.exists() and any(model_dir.iterdir()):
         print(

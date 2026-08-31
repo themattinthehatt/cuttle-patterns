@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.ingest import find_raw_videos
@@ -15,9 +16,6 @@ from cuttle_patterns.preprocessing.align import (
 )
 from cuttle_patterns.preprocessing.inscribe import DEFAULT_ASPECT_RATIO, DEFAULT_THRESHOLD
 from cuttle_patterns.preprocessing.overlay import DEFAULT_CRF, create_overlay_video
-
-OUTPUT_RELPATH = Path('rectangles')
-POSE_RELPATH = Path('pose')
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -48,7 +46,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         metavar='PATH',
         help=f'directory containing/receiving {{video_name}}.csv and '
-        f'{{video_name}}_overlay.mp4; defaults to results_dir/{OUTPUT_RELPATH}',
+        f'{{video_name}}_overlay.mp4; defaults to results_dir/{paths.RECTANGLES_RELPATH}',
     )
     parser.add_argument(
         '--video-path',
@@ -68,7 +66,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help=f'directory containing {{video_name}}.csv pose predictions (see '
         f'cuttle_patterns.preprocessing.pose); keypoints are drawn on the overlay, and '
         f'this is also passed to inscribe if {{video_name}}.csv does not exist yet; '
-        f'defaults to results_dir/{POSE_RELPATH}',
+        f'defaults to results_dir/{paths.POSE_RELPATH}',
     )
     parser.add_argument(
         '--pose-path',
@@ -143,8 +141,11 @@ def cmd_overlay(args: argparse.Namespace) -> None:
         data_dir = args.data_dir if args.data_dir is not None else config.data_dir
         results_dir = args.results_dir if args.results_dir is not None else config.results_dir
 
-    output_dir = args.output_dir if args.output_dir is not None else results_dir / OUTPUT_RELPATH
-    pose_dir = args.pose_dir if args.pose_dir is not None else results_dir / POSE_RELPATH
+    output_dir = (
+        args.output_dir if args.output_dir is not None
+        else results_dir / paths.RECTANGLES_RELPATH
+    )
+    pose_dir = args.pose_dir if args.pose_dir is not None else results_dir / paths.POSE_RELPATH
 
     if args.video_path is not None:
         video_paths = [args.video_path]
