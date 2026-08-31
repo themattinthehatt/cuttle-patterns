@@ -199,3 +199,22 @@ straight through to BEAST's own flags of the same purpose.
 `cuttle predict` writes under `{model_dir}/image_predictions/{input_dir.stem}` by
 default — per-frame embeddings as `latents/{...}/{frame_stem}.npy` when
 `--save-latents` is passed, reconstructed images when `--save-reconstructions` is.
+
+### 6. `cuttle reduce`
+
+Projects the per-frame latents from `cuttle predict --save-latents` to 2D via UMAP, so
+they can be compared across hyperparameter settings and, eventually, visualized.
+
+```bash
+cuttle reduce --model-name resnet-ae-v1
+```
+
+Reads every `.npy` file under
+`results_dir/beast_models/{model_name}/image_predictions/{predictions_name}/latents/`
+(`--predictions-name` defaults to `beast_frames`, matching `cuttle predict`'s default
+`--input-dir` stem) and writes one row per frame — `umap_x`, `umap_y`, plus `day`,
+`tank`, `role`, `frame_number`, `video_name` parsed from each frame's path — to
+`results_dir/beast_models/{model_name}/reduce/umap_{hparams}.parquet`. `{hparams}`
+encodes `--n-neighbors`/`--min-dist` (default 15/0.1), so different sweeps land in
+separate files instead of overwriting each other; `--metric`/`--random-state` (default
+`euclidean`/42) are also exposed but aren't part of the filename.

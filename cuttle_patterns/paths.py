@@ -11,7 +11,9 @@ relative paths, so the tree layout only has to change in one place:
     │       └── {model_name}/              # scripts/make_reconstruction_clip.py
     ├── beast_models/
     │   └── {model_name}/                  # cuttle train / cuttle predict
-    │       └── image_predictions/...      # beast predict's own layout, not covered here
+    │       ├── image_predictions/...      # beast predict's own layout, not covered here
+    │       └── reduce/                    # cuttle reduce
+    │           └── umap_{hparams}.parquet
     ├── manifests/
     │   ├── extract.parquet                # cuttle extract
     │   └── ingest.parquet                 # cuttle ingest
@@ -33,6 +35,9 @@ POSE_RELPATH = Path('pose')
 # BEAST training frames, models, and predictions
 BEAST_FRAMES_RELPATH = Path('beast_frames')
 BEAST_MODELS_RELPATH = Path('beast_models')
+
+# dimensionality reduction output (cuttle reduce), relative to beast_models/{model_name}/
+REDUCE_RELPATH = Path('reduce')
 
 # QC clips (scripts/make_mantle_clip.py, scripts/make_reconstruction_clip.py)
 MEDIA_RELPATH = Path('media')

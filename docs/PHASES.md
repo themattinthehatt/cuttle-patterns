@@ -401,20 +401,31 @@ machine-agnostic. See README.md's pipeline step 5 for the commands. Tests:
 
 ---
 
-## Phase 5: Dimensionality reduction
+## Phase 5: Dimensionality reduction — implemented, CLI-exposed
 
 **Goal:** project each frame's BEAST embedding (Phase 4) down to 2D, trying multiple
 hyperparameter settings side by side rather than picking one up front.
 
 - Apply UMAP to the per-frame latents written by `cuttle predict` under
   `beast_models/{model_dir}/image_predictions/beast_frames/`, sweeping hyperparameters
-  (e.g. `n_neighbors`, `min_dist`) across separate runs.
-- Exposed as `cuttle reduce`, taking a `model-dir` and UMAP hyperparameters.
+  (`n_neighbors`, `min_dist`) across separate runs.
+- Exposed as `cuttle reduce --model-name {model_dir}`, via
+  `cuttle_patterns/cli/cmd_reduce.py`. `cuttle_patterns/embeddings.py` (shared with the
+  Phase 6 implementation below) loads every `.npy` latent under a model's
+  `image_predictions/{predictions_name}/latents/` tree into an `(n_frames, latent_dim)`
+  array plus row-aligned metadata parsed from each frame's path (`video_name` directory
+  → `day`/`tank`/`role`; `img{frame_number}.npy` filename → `frame_number`);
+  `cuttle_patterns/reduce.py` wraps `umap.UMAP` and assembles the output frame. Tests:
+  `tests/test_embeddings.py`, `tests/test_reduce.py`, `tests/cli/test_cmd_reduce.py`.
 - Output: one row per frame in `beast_models/{model_dir}/image_predictions/beast_frames/`,
-  with `umap_x`, `umap_y`, and per-frame metadata (`day`, `tank`, `role`, frame number),
-  written to `results_dir/beast_models/{model_dir}/umap/umap_{hparams}.parquet` — one
-  file per hyperparameter setting, so different UMAP runs can be compared rather than
-  overwriting each other.
+  with `umap_x`, `umap_y`, and per-frame metadata (`day`, `tank`, `role`, `frame_number`,
+  `video_name`), written to
+  `results_dir/beast_models/{model_dir}/reduce/umap_{hparams}.parquet` — one file per
+  hyperparameter setting (`{hparams}` encodes `n_neighbors`/`min_dist`, e.g.
+  `umap_nn15_md0.1.parquet`), so different UMAP runs can be compared rather than
+  overwriting each other. The `reduce/` subdirectory (rather than `umap/`) is deliberately
+  method-agnostic, so a non-UMAP reduction added later (e.g. t-SNE) can live alongside it
+  as `reduce/tsne_{hparams}.parquet` without a directory-layout change.
 
 ---
 
