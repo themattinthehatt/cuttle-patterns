@@ -22,6 +22,10 @@ conda activate cuttle
 pip install -e ".[dev]"
 ```
 
+`beast-backbones v2.0.0` (required) isn't on PyPI yet, so install it from a git clone first — see 
+the [BEAST README](https://github.com/paninski-lab/beast#installation) for the exact steps
+(`pip install lightning poetry-core` then `pip install -e . --no-build-isolation`).
+
 Each machine needs a local config file at `~/.cuttle-patterns/config.yaml` pointing to
 where data and results live. Create/update it with:
 
