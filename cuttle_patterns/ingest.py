@@ -22,8 +22,6 @@ FILENAME_PATTERN = re.compile(
     r'^(?P<session_id>Day\d+_Tank\d+)_(?P<fish_id>Cuttle\d+_[A-Za-z]+)_[Cc]rop$'
 )
 
-MANIFEST_RELPATH = Path('manifests') / 'ingest.parquet'
-
 
 @dataclass
 class VideoInfo:

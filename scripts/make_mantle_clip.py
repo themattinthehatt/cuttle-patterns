@@ -16,6 +16,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.config import load_config
 from cuttle_patterns.visualization.video_utils import (
     VIDEO_CRF,
@@ -119,13 +120,13 @@ def main() -> None:
 
     results_dir = args.results_dir if args.results_dir is not None else load_config().results_dir
 
-    full_path = results_dir / 'rectangles' / f'{args.video_name}_overlay.mp4'
-    crop_path = results_dir / 'rectangles' / f'{args.video_name}.mp4'
+    full_path = results_dir / paths.RECTANGLES_RELPATH / f'{args.video_name}_overlay.mp4'
+    crop_path = results_dir / paths.RECTANGLES_RELPATH / f'{args.video_name}.mp4'
     for path in (full_path, crop_path):
         if not path.exists():
             raise FileNotFoundError(f'expected video not found: {path}')
 
-    output_dir = results_dir / 'media'
+    output_dir = results_dir / paths.MEDIA_RELPATH
     output_dir.mkdir(parents=True, exist_ok=True)
 
     start_str = format_seconds_for_filename(args.start)

@@ -26,11 +26,9 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 
+from cuttle_patterns import paths
 from cuttle_patterns.config import load_config
 from cuttle_patterns.visualization.video_utils import build_gif_command, open_ffmpeg_raw_writer
-
-FRAMES_RELPATH = Path('beast_frames')
-OUTPUT_RELPATH = Path('beast_frames_qc') / 'reconstructions'
 
 DEFAULT_N_FRAMES = 200
 DEFAULT_FPS = 4
@@ -215,7 +213,9 @@ def main() -> None:
 
     results_dir = args.results_dir if args.results_dir is not None else load_config().results_dir
 
-    selected_frames_path = results_dir / FRAMES_RELPATH / args.session_name / 'selected_frames.csv'
+    selected_frames_path = (
+        results_dir / paths.BEAST_FRAMES_RELPATH / args.session_name / 'selected_frames.csv'
+    )
     if not selected_frames_path.exists():
         raise FileNotFoundError(f'no selected_frames.csv found at {selected_frames_path}')
 
@@ -238,7 +238,9 @@ def main() -> None:
             f'{metadata_path}, e.g. {missing[:5]}'
         )
 
-    output_dir = results_dir / OUTPUT_RELPATH / args.model_dir.name
+    output_dir = (
+        results_dir / paths.BEAST_FRAMES_QC_RECONSTRUCTIONS_RELPATH / args.model_dir.name
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     mp4_path = output_dir / f'{args.session_name}.mp4'
     gif_path = mp4_path.with_suffix('.gif')

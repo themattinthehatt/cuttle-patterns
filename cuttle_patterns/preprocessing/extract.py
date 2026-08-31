@@ -41,8 +41,6 @@ DEFAULT_FRAMES_PER_VIDEO = 1000
 DEFAULT_RESIZE_DIMS = 32
 DEFAULT_SMALL_RECT_RATIO_THRESH = 0.5
 
-MANIFEST_RELPATH = Path('manifests') / 'extract.parquet'
-
 
 def compute_small_rectangle_mask(
     rect_csv_path: Path,

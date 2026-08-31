@@ -6,8 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
-from cuttle_patterns.cli.cmd_train import INPUT_RELPATH, MODEL_RELPATH
 from cuttle_patterns.config import load_config
 
 DEFAULT_BATCH_SIZE = 32
@@ -34,14 +34,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         '--model-name',
         required=True,
         help=f'name of a model previously trained with cuttle train; looked up at '
-        f'results_dir/{MODEL_RELPATH}/{{model_name}}',
+        f'results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
     )
     parser.add_argument(
         '--input-dir',
         type=Path,
         metavar='PATH',
         help=f'directory of images to run inference on, passed to beast predict as '
-        f'--input; defaults to results_dir/{INPUT_RELPATH}',
+        f'--input; defaults to results_dir/{paths.BEAST_FRAMES_RELPATH}',
     )
     parser.add_argument(
         '--output-dir',
@@ -89,8 +89,10 @@ def cmd_predict(args: argparse.Namespace) -> None:
             sys.exit(1)
         results_dir = config.results_dir
 
-    input_dir = args.input_dir if args.input_dir is not None else results_dir / INPUT_RELPATH
-    model_dir = results_dir / MODEL_RELPATH / args.model_name
+    input_dir = (
+        args.input_dir if args.input_dir is not None else results_dir / paths.BEAST_FRAMES_RELPATH
+    )
+    model_dir = results_dir / paths.BEAST_MODELS_RELPATH / args.model_name
 
     if not model_dir.exists():
         print(f'Error: no model found at {model_dir}; train one first with cuttle train')

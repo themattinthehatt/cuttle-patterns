@@ -4,9 +4,10 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
-from cuttle_patterns.ingest import MANIFEST_RELPATH, build_manifest
+from cuttle_patterns.ingest import build_manifest
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -64,7 +65,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         print(f'No raw videos found in {data_dir}.')
         return
 
-    manifest_path = results_dir / MANIFEST_RELPATH
+    manifest_path = results_dir / paths.INGEST_MANIFEST_RELPATH
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest.to_parquet(manifest_path, index=False)
 
