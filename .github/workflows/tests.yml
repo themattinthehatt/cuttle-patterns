@@ -31,6 +31,10 @@ jobs:
         run: brew install ffmpeg
 
       - name: Install beast-backbones
+        env:
+          # beast's gsplat fork otherwise unconditionally builds a CUDAExtension, which
+          # fails at metadata-prep time on a runner with no CUDA_HOME at all.
+          BUILD_NO_CUDA: "1"
         run: |
           # CPU wheel first so lightning/beast's own torch pull is satisfied by it instead
           # of pulling the much heavier CUDA build on this CPU-only runner.
