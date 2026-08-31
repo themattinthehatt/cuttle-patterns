@@ -429,22 +429,32 @@ hyperparameter settings side by side rather than picking one up front.
 
 ---
 
-## Phase 6: Clustering
+## Phase 6: Clustering — implemented, CLI-exposed
 
 **Goal:** assign a discrete cluster label to every frame, as an additional attribute for
 the Phase 7 visualization to filter/color by.
 
-- Run clustering (k-means first) on the raw 768-d BEAST embeddings from Phase 4 (the
-  same `image_predictions/beast_frames/` latents Phase 5 reads) — not the 2D UMAP
-  projection — since it's more principled to cluster in the space the embedding model
-  actually produces rather than a lossy 2D projection of it. Revisit if these clusters
-  look unstable relative to structure visible in the UMAP projection.
-- Exposed as `cuttle cluster`, taking a `model-dir`, a `method` (`kmeans` first), and
-  method hyperparameters.
+- Run clustering (k-means first) on the raw BEAST embeddings from Phase 4 (the same
+  `image_predictions/beast_frames/` latents Phase 5 reads, via the same
+  `cuttle_patterns/embeddings.py:load_latents`) — not the 2D UMAP projection — since
+  it's more principled to cluster in the space the embedding model actually produces
+  rather than a lossy 2D projection of it. Revisit if these clusters look unstable
+  relative to structure visible in the UMAP projection.
+- Exposed as `cuttle cluster --model-name {model_dir} --n-clusters {k}`, via
+  `cuttle_patterns/cli/cmd_cluster.py`. `cuttle_patterns/cluster.py` wraps
+  `sklearn.cluster.KMeans` (`run_kmeans`) and assembles the output frame
+  (`build_cluster_dataframe`); `--method` is dispatched through an explicit
+  `choices=['kmeans']` registry so a second method is a small, deliberate addition
+  rather than a silently-accepted unimplemented string. `--n-clusters` is required (no
+  universal default, unlike UMAP's hyperparameters); `--random-state` defaults to 42.
+  Tests: `tests/test_cluster.py`, `tests/cli/test_cmd_cluster.py`.
 - Output: one row per frame in `beast_models/{model_dir}/image_predictions/beast_frames/`,
-  written to `results_dir/beast_models/{model_dir}/clusters/{method}_{hparams}.parquet` —
-  the same one-row-per-frame shape as the Phase 5 output, so cluster labels are just
-  another joinable attribute rather than a replacement for the UMAP coordinates.
+  with a `cluster` label plus the same `day`/`tank`/`role`/`frame_number`/`video_name`
+  metadata as the Phase 5 output, written to
+  `results_dir/beast_models/{model_dir}/clusters/{method}_{hparams}.parquet` (`{hparams}`
+  encodes `n_clusters`, e.g. `clusters/kmeans_k10.parquet`) — the same one-row-per-frame
+  shape as the Phase 5 output, so cluster labels are just another joinable attribute
+  rather than a replacement for the UMAP coordinates.
 
 ---
 
