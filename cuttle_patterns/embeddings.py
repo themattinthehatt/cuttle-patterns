@@ -4,6 +4,10 @@ Shared by Phase 5 (`cuttle reduce`) and Phase 6 (`cuttle cluster`), both of whic
 the same per-frame `.npy` latent vectors under a model's
 `image_predictions/{predictions_name}/latents/{video_name}/img{frame_number}.npy` tree
 (BEAST's own output layout — see the docstring of `cuttle_patterns/paths.py`).
+
+Also reads a model's saved `config.yaml` (written by `beast train` alongside the
+checkpoint) to split an `msps_vae` model's concatenated latent vector back into its two
+named subspaces — see `split_latent_spaces`.
 """
 
 import re
@@ -11,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 # mirrors ingest.FILENAME_PATTERN's video-name shape, but captures day/tank/role
 # directly instead of the combined session_id/fish_id groups, since downstream metadata
@@ -19,6 +24,13 @@ VIDEO_NAME_PATTERN = re.compile(
     r'^Day(?P<day>\d+)_Tank(?P<tank>\d+)_Cuttle\d+_(?P<role>[A-Za-z]+)_[Cc]rop$'
 )
 FRAME_FILENAME_PATTERN = re.compile(r'^img(?P<frame_number>\d+)$')
+
+MSPS_VAE_MODEL_CLASS = 'msps_vae'
+
+# keys of the dict split_latent_spaces returns
+LATENT_SPACE_ALL = 'all'
+LATENT_SPACE_UNSUPERVISED = 'unsupervised'
+LATENT_SPACE_BACKGROUND = 'background'
 
 
 def parse_video_name(video_name: str) -> dict[str, int | str]:
@@ -91,3 +103,64 @@ def load_latents(latents_dir: Path) -> tuple[np.ndarray, pd.DataFrame]:
 
     order = meta.sort_values(['video_name', 'frame_number']).index.to_numpy()
     return X[order], meta.iloc[order].reset_index(drop=True)
+
+
+def split_latent_spaces(X: np.ndarray, model_dir: Path) -> dict[str, np.ndarray]:
+    """Split a model's latents into named subspaces, by reading its saved config.
+
+    An `msps_vae` model's `predict_step` concatenates its unsupervised (`z_u`) and
+    background (`z_b`) subspaces column-wise, in that order (see
+    `beast/models/msps_vae/msps_vae_model.py`'s `predict_step` docstring); this
+    recovers that split using `num_latents_unsupervised` from the model's own
+    `config.yaml`, rather than assuming a split index at the call site. Every other
+    model class has a single undifferentiated latent space.
+
+    Args:
+        X: embeddings loaded by `load_latents`, shape (n_frames, latent_dim).
+        model_dir: `results_dir/beast_models/{model_name}`, whose `config.yaml`
+            (written by `beast train`) records the model's class and params.
+
+    Returns:
+        `{'unsupervised': X[:, :n], 'background': X[:, n:]}` for an `msps_vae` model;
+        `{'all': X}` for every other model class.
+
+    Raises:
+        FileNotFoundError: if `model_dir` has no `config.yaml`.
+    """
+    config_path = model_dir / 'config.yaml'
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            f'no config.yaml found at {config_path}; expected one to be written by '
+            f'`beast train`'
+        )
+    with config_path.open() as f:
+        raw = yaml.safe_load(f)
+
+    model = raw['model']
+    if model['model_class'] != MSPS_VAE_MODEL_CLASS:
+        return {LATENT_SPACE_ALL: X}
+
+    num_latents_unsupervised = model['model_params']['num_latents_unsupervised']
+    return {
+        LATENT_SPACE_UNSUPERVISED: X[:, :num_latents_unsupervised],
+        LATENT_SPACE_BACKGROUND: X[:, num_latents_unsupervised:],
+    }
+
+
+def select_cluster_latents(subspaces: dict[str, np.ndarray]) -> np.ndarray:
+    """Pick which latent subspace `cuttle cluster` should cluster on.
+
+    For an `msps_vae` model, clustering runs on the unsupervised subspace only — the
+    background subspace is shaped by the triplet loss to separate by video identity,
+    not pattern, so including it would reintroduce the identity-dominated clustering
+    the two-subspace split was built to avoid.
+
+    Args:
+        subspaces: output of `split_latent_spaces`.
+
+    Returns:
+        `subspaces['unsupervised']` if present, otherwise `subspaces['all']`.
+    """
+    if LATENT_SPACE_UNSUPERVISED in subspaces:
+        return subspaces[LATENT_SPACE_UNSUPERVISED]
+    return subspaces[LATENT_SPACE_ALL]
