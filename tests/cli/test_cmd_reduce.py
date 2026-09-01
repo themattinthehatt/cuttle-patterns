@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from cuttle_patterns.cli.cmd_reduce import cmd_reduce
 
@@ -28,15 +29,27 @@ def _make_latents(
     results_dir: Path,
     model_name: str = 'resnet-ae-v1',
     n_frames: int = 5,
+    model_class: str = 'resnet_ae',
+    num_latents_unsupervised: int | None = None,
 ) -> Path:
+    model_dir = results_dir / 'beast_models' / model_name
     latents_dir = (
-        results_dir / 'beast_models' / model_name / 'image_predictions' / 'beast_frames'
-        / 'latents' / 'Day1_Tank2_Cuttle1_Resident_Crop'
+        model_dir / 'image_predictions' / 'beast_frames' / 'latents'
+        / 'Day1_Tank2_Cuttle1_Resident_Crop'
     )
     latents_dir.mkdir(parents=True)
     rng = np.random.default_rng(0)
     for i in range(n_frames):
         np.save(latents_dir / f'img{i:08d}.npy', rng.normal(size=4).astype(np.float32))
+
+    config = {'model': {'model_class': model_class}}
+    if model_class == 'msps_vae':
+        config['model']['model_params'] = {
+            'num_latents_unsupervised': num_latents_unsupervised,
+        }
+    with (model_dir / 'config.yaml').open('w') as f:
+        yaml.safe_dump(config, f)
+
     return latents_dir
 
 
@@ -95,3 +108,27 @@ class TestCmdReduce:
 
         # Assert
         assert 'overwriting existing' in capsys.readouterr().out
+
+    def test_cmd_reduce_msps_vae_writes_two_reductions(self, tmp_path: Path):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _make_latents(
+            results_dir,
+            model_name='msps-vae-v1',
+            n_frames=6,
+            model_class='msps_vae',
+            num_latents_unsupervised=2,
+        )
+        args = _make_args(results_dir=results_dir, model_name='msps-vae-v1', n_neighbors=2)
+
+        # Act
+        cmd_reduce(args)
+
+        # Assert
+        reduce_dir = results_dir / 'beast_models' / 'msps-vae-v1' / 'reduce'
+        unsupervised_path = reduce_dir / 'umap_nn2_md0.1_unsupervised.parquet'
+        background_path = reduce_dir / 'umap_nn2_md0.1_background.parquet'
+        assert unsupervised_path.exists()
+        assert background_path.exists()
+        assert len(pd.read_parquet(unsupervised_path)) == 6
+        assert len(pd.read_parquet(background_path)) == 6
