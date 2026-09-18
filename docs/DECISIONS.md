@@ -6,6 +6,104 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Classifier embeddings: duck-type as a BEAST model dir, reuse reduce/cluster/dashboard as-is
+
+**Date:** 2026-09-18
+**Status:** decided, implemented
+
+**Decision:** `scripts/classify_skin_pattern.py` also captures the classifier's 512-d
+penultimate activation (post-`avgpool`, pre-`fc`) per frame, via a forward hook on
+`model.avgpool` — the same forward pass already computing the predictions in the
+"Classifier predictions" entry below, so no second pass over the data is needed. These
+are written to `results_dir/beast_models/{model_name}/image_predictions/
+{predictions_name}/latents/{video_name}/img{frame_number:08d}.npy`, byte-for-byte the
+same layout `beast predict --save-latents` writes for a real BEAST model, plus a minimal
+`config.yaml` (`model.model_class: classifier`). `--model-name` is required (no
+default), used for both this directory and the predictions parquet's filename — the
+caller is expected to pick something that reads as non-BEAST at a glance, e.g.
+`iter-1.1_classifier_d512` (existing BEAST models are named `iter-1.1_resnet-18_d16`,
+`iter-1.1_msps-vae_d16`).
+
+**Why:** `cuttle_patterns.embeddings.load_latents` (used by both `cuttle reduce` and
+`cuttle cluster`) only cares about the on-disk `.npy` layout under a model directory, and
+`embeddings.split_latent_spaces` only cares about one `config.yaml` key
+(`model.model_class`, to special-case `msps_vae`); neither actually checks that the
+directory came from a real `beast train` run. Matching that contract exactly means
+`cuttle reduce --model-name {model_name}` / `cuttle cluster --model-name {model_name}
+--n-clusters K` work completely unmodified against the classifier's embeddings, and
+`cuttle serve`'s Model dropdown (`cuttle_patterns/dashboard/data.py`'s
+`list_model_names`, which just lists `beast_models/` subdirectories) picks it up for
+free too — letting the classifier's own embedding geometry be explored as a first-class
+alternative to the unsupervised BEAST embeddings, not just as an attribute overlaid on
+top of them. No dashboard or `cuttle` CLI code changed for this; only the classify script
+did. Verified end to end on a scratch results dir: `cuttle reduce`, `cuttle cluster`,
+and every `cuttle_patterns.dashboard.data` lookup all worked against it without
+modification.
+
+**Alternatives considered:** a new `cuttle serve` "embedding source" dropdown decoupled
+from `beast_models/`, so the classifier's embedding wouldn't have to pretend to live
+inside a BEAST-model-shaped directory — rejected once the duck-typing approach above
+turned out to need zero new dashboard/CLI code, versus a moderate amount of new plumbing
+to let the plot's x/y source vary independently of the model selector.
+
+**Trade-off / known risk:** the `beast_models/` directory now contains one entry
+(`iter-1.1_classifier_d512`) that wasn't produced by `beast train` and has no
+`tb_logs/`/checkpoint — a `config.yaml` fiction, essentially. Anyone browsing
+`results_dir` (or running `cuttle predict`/`cuttle train --model-name
+iter-1.1_classifier_d512` by mistake) could be misled; the naming convention
+(`classifier` in the name, distinct from the `resnet-18`/`msps-vae` architecture names
+used elsewhere) is the only safeguard, not an enforced check. Acceptable given how much
+code reuse it buys; revisit (e.g. a marker file, or a real `cuttle`-level "embedding
+source" abstraction) if this directory ever needs to distinguish itself more forcefully
+from real trained models.
+
+---
+
+## Classifier predictions: model-independent `classifications/` dir, not per-model `clusters/`
+
+**Date:** 2026-09-18
+**Status:** decided, implemented
+
+**Decision:** `scripts/classify_skin_pattern.py` runs a collaborator's supervised
+skin-pattern classifier over every frame under `results_dir/beast_frames/` and writes
+predictions to a new top-level `results_dir/classifications/{name}.parquet` (new
+`paths.CLASSIFICATIONS_RELPATH`), rather than dropping the file into an existing
+`beast_models/{model_name}/clusters/` directory the way `cuttle cluster` output does.
+`cuttle serve`'s dashboard (`cuttle_patterns/dashboard/{data,app}.py`) gained a second,
+independent "Classification attributes" checkbox list, populated once at document build
+and left populated across model/reduction switches, rather than reusing the existing
+per-model "Cluster attributes" list. Checking a classification file attaches *all* of
+its non-index columns (`predicted_pattern`, `confidence`, one `prob_{class}` per class),
+each prefixed with the file's stem — not just a single
+renamed `cluster` column, since exposing the full probability vector (not just argmax)
+as continuous color-by options was the classifier author's own explicit rationale for
+outputting it (see [PHASES.md](PHASES.md)'s Phase 7 "Supervised classification overlay"
+entry).
+
+**Why:** the classifier's predictions depend only on the frame image, not on any
+particular BEAST embedding/model — placing the file under a specific model's `clusters/`
+directory (or duplicating it into every model's) would have implied a coupling to that
+model that doesn't exist, and would have needed a copy per model to be visible when
+switching between them in the dashboard. A model-independent top-level directory means
+one classifier run stays visible and attachable regardless of which model/reduction is
+currently selected.
+
+**Alternatives considered:** writing the classifier output as a single `cluster` column
+and dropping it into every model's `clusters/` directory, so it would show up in the
+existing checkbox list with zero dashboard code changes — rejected: semantically odd
+(the same file duplicated per model), and would have thrown away the probability-vector
+columns unless the mechanism were generalized anyway, in which case there was no
+remaining benefit to reusing the model-scoped location.
+
+**Trade-off / known risk:** the classifier itself is a separate, collaborator-maintained
+artifact delivered outside this repo (weights + `behaviors.json`, currently at
+`/media/mattw/CUTTLE/classification/2026-09-09_classifier_model/`) — this repo has no way
+to detect a mismatched or stale weights/behaviors pairing beyond what the classifier's
+own script already checks. `scripts/classify_skin_pattern.py` is a script, not a `cuttle`
+subcommand yet, per the existing "scripts/ directory" convention below.
+
+---
+
 ## MSPS-VAE: reconstruction-based fix for video-identity-dominated clustering
 
 **Date:** 2026-08-31

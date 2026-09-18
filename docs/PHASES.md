@@ -469,6 +469,65 @@ aligned frame image, colored by cluster.
   without rebuilding the UI.
 - Likely filters: by session, by fish, by cluster.
 
+### Supervised classification overlay — implemented
+
+**Status:** a collaborator is fitting a supervised skin-pattern classifier (ResNet18, 6
+classes) in parallel to this project's unsupervised embedding/clustering track, on frame
+crops from the same `cuttle extract` pipeline. `scripts/classify_skin_pattern.py` runs
+her shared model (`skin_pattern_resnet18_best.pt` + `behaviors.json`, both delivered
+outside this repo) once over every frame under `results_dir/beast_frames/` — the same
+anchor-plus-context-neighbor set `cuttle predict`/`reduce`/`cluster` already operate on,
+not just the anchors in `manifests/extract.parquet` — producing two outputs from that
+single pass:
+
+**1. Predicted labels.** One row per frame to
+`results_dir/classifications/{model_name}.parquet`: `predicted_pattern` (hard label),
+`confidence`, and one `prob_{class}` column per class (the full probability vector, not
+just argmax — per the classifier author's own recommendation, so ambiguous/blended
+frames are visible as a continuous quantity rather than collapsed into one label). Unlike
+a `cuttle cluster` output, this file is **not** scoped to a particular BEAST model — it
+lives directly under `results_dir/classifications/`, not under a
+`beast_models/{model_name}/` directory (see `cuttle_patterns/paths.py`'s
+`CLASSIFICATIONS_RELPATH`) — so it can be attached to *any* model's plot, including the
+classifier's own embedding plot below. `cuttle serve` has a second, independent
+"Classification attributes" checkbox list (`cuttle_patterns/dashboard/{data,app}.py`)
+alongside the existing per-model "Cluster attributes" one: checking a file attaches
+every one of its columns (not just one, unlike a cluster file), each prefixed with the
+file's stem (`{stem}_predicted_pattern`, `{stem}_prob_Leopard`, ...). Since it's
+model-independent, the checkbox list is populated once at document build and stays
+populated across model/reduction switches — the dashboard reattaches whatever's checked
+to the freshly-loaded reduction dataframe rather than clearing it the way
+`cluster_checkbox` clears on a reduction change.
+
+**2. The classifier's own embedding, as a pseudo BEAST model.** The classifier's 512-d
+penultimate activation (the ResNet18's post-`avgpool`, pre-`fc` layer, captured via a
+forward hook so it comes for free alongside the predictions above — no second forward
+pass) is written per frame to
+`results_dir/beast_models/{model_name}/image_predictions/{predictions_name}/latents/` —
+exactly `beast predict --save-latents`'s own layout — plus a minimal `config.yaml`
+(`model.model_class: classifier`, so `embeddings.split_latent_spaces` takes its ordinary
+single-latent-space path, the same as any non-`msps_vae` model). This makes
+`{model_name}` an ordinary entry in `results_dir/beast_models/` to every downstream
+tool — `cuttle reduce --model-name {model_name}` and `cuttle cluster --model-name
+{model_name} --n-clusters K` run against it completely unmodified, and it shows up in
+`cuttle serve`'s Model dropdown alongside real BEAST models, letting the classifier's own
+embedding geometry (not just its predicted labels) be explored on its own terms — a
+UMAP of *its* space, colored by its own predicted pattern or class probabilities via the
+same "Classification attributes" checkboxes from part 1. No dashboard or CLI code needed
+this at all; only `scripts/classify_skin_pattern.py` changed. `--model-name` is required
+(no default) and used for both outputs — pick something that reads as clearly non-BEAST
+at a glance (e.g. `iter-1.1_classifier_d512`, vs. `iter-1.1_resnet-18_d16`), since this
+directory isn't actually the output of a `beast train` run. See the "Classifier
+embeddings" entry in [DECISIONS.md](DECISIONS.md).
+
+**Known limitation (from the classifier's own README):** the model was trained on
+single-animal crops with the background already masked, matching this pipeline's
+`cuttle inscribe` output — accuracy is expected to degrade on frames with visible
+tank/background or a second animal. It also confuses "Pale aggression" and "Black
+border" most often (recall 0.63–0.64 vs. 0.87–0.99 for the other four classes) — if the
+UMAP smears those two together too, that may reflect genuine visual similarity the
+classifier also struggles with, not just an embedding-quality issue.
+
 ---
 
 ## Phase 8: Iteration & analysis

@@ -4,6 +4,10 @@ Reads the one-row-per-frame parquet files `cuttle reduce`/`cuttle cluster` write
 model's `reduce/`/`clusters/` directories (see `cuttle_patterns/paths.py`) and joins them
 on `(video_name, frame_number)`, since neither file carries the image itself — frames live
 under `results_dir/beast_frames/{video_name}/img{frame_number:08d}.png` (Phase 3 output).
+
+Also joins in `scripts/classify_skin_pattern.py`'s predictions from
+`results_dir/classifications/`, the same way but model-independent — see
+`attach_classification_columns`.
 """
 
 from pathlib import Path
@@ -138,6 +142,74 @@ def attach_cluster_column(df: pd.DataFrame, cluster_path: Path) -> pd.DataFrame:
         validate='one_to_one',
     )
     return merged
+
+
+def list_classification_paths(results_dir: Path) -> list[Path]:
+    """List available classifier prediction files, without loading them.
+
+    Unlike `cuttle cluster` output, these aren't scoped to a particular BEAST model —
+    `scripts/classify_skin_pattern.py` only depends on the frame images, not any
+    embedding — so they live directly under `results_dir`, not a model directory.
+
+    Args:
+        results_dir: the resolved results directory.
+
+    Returns:
+        sorted list of paths under `results_dir/classifications/`; empty if the
+        directory is missing. Callers load a file's contents (via
+        `attach_classification_columns`) only once the user actually selects it.
+    """
+    classifications_dir = results_dir / paths.CLASSIFICATIONS_RELPATH
+    if not classifications_dir.is_dir():
+        return []
+    return sorted(classifications_dir.glob('*.parquet'))
+
+
+def attach_classification_columns(df: pd.DataFrame, classification_path: Path) -> pd.DataFrame:
+    """Attach a classifier predictions file's columns, prefixed with the file's stem.
+
+    Unlike `attach_cluster_column` (one label column, renamed to the file stem), a
+    classification file (`scripts/classify_skin_pattern.py`) carries several columns
+    worth exposing as separate color-by options — the hard predicted label plus one
+    probability column per class — so every non-index column is kept, each prefixed
+    with the file stem so multiple classification files can be attached without
+    colliding.
+
+    Args:
+        df: a DataFrame from `load_reduce_dataframe` (or one already carrying other
+            attached columns), with `INDEX_COLS` present.
+        classification_path: path to a `classifications/{name}.parquet` file.
+
+    Returns:
+        a new DataFrame (`df` is not mutated) with the classification columns attached.
+
+    Raises:
+        ValueError: if `classification_path`'s `(video_name, frame_number)` keys don't
+            exactly match `df`'s.
+    """
+    classification_df = pd.read_parquet(classification_path)
+
+    df_keys = set(zip(*(df[col] for col in INDEX_COLS), strict=True))
+    classification_keys = set(
+        zip(*(classification_df[col] for col in INDEX_COLS), strict=True)
+    )
+    if df_keys != classification_keys:
+        missing_from_classification = df_keys - classification_keys
+        missing_from_df = classification_keys - df_keys
+        raise ValueError(
+            f'{classification_path.name} does not match the loaded reduction on '
+            f'{INDEX_COLS}: {len(missing_from_classification)} key(s) present in the '
+            f'reduction but missing from {classification_path.name}, '
+            f'{len(missing_from_df)} key(s) present in {classification_path.name} but '
+            f'missing from the reduction'
+        )
+
+    stem = classification_path.stem
+    value_columns = [c for c in classification_df.columns if c not in INDEX_COLS]
+    renamed = classification_df[[*INDEX_COLS, *value_columns]].rename(
+        columns={c: f'{stem}_{c}' for c in value_columns},
+    )
+    return pd.merge(df, renamed, on=list(INDEX_COLS), how='left', validate='one_to_one')
 
 
 def colorable_columns(df: pd.DataFrame) -> list[str]:

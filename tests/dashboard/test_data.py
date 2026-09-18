@@ -176,6 +176,77 @@ class TestAttachClusterColumn:
             data.attach_cluster_column(df, cluster_path)
 
 
+class TestListClassificationPaths:
+    """Test the function list_classification_paths."""
+
+    def test_list_classification_paths_returns_sorted_parquet_files(self, tmp_path: Path):
+        # Arrange
+        classifications_dir = tmp_path / 'classifications'
+        _write_parquet(classifications_dir / 'skin_pattern_resnet18.parquet', _make_reduce_df())
+        _write_parquet(classifications_dir / 'another_model.parquet', _make_reduce_df())
+
+        # Act
+        result = data.list_classification_paths(tmp_path)
+
+        # Assert
+        assert [p.name for p in result] == [
+            'another_model.parquet', 'skin_pattern_resnet18.parquet',
+        ]
+
+    def test_list_classification_paths_missing_dir(self, tmp_path: Path):
+        # Act & Assert
+        assert data.list_classification_paths(tmp_path) == []
+
+
+class TestAttachClassificationColumns:
+    """Test the function attach_classification_columns."""
+
+    def test_attach_classification_columns_merges_and_prefixes(self, tmp_path: Path):
+        # Arrange
+        df = _make_reduce_df(3)
+        classification_df = pd.DataFrame({
+            'video_name': ['Day1_Tank2_Cuttle1_Resident_Crop'] * 3,
+            'frame_number': [0, 1, 2],
+            'predicted_pattern': ['Leopard', 'White', 'Leopard'],
+            'confidence': [0.9, 0.8, 0.7],
+            'prob_Leopard': [0.9, 0.1, 0.7],
+            'prob_White': [0.1, 0.8, 0.3],
+        })
+        classification_path = _write_parquet(
+            tmp_path / 'skin_pattern_resnet18.parquet', classification_df,
+        )
+
+        # Act
+        result = data.attach_classification_columns(df, classification_path)
+
+        # Assert
+        assert 'predicted_pattern' not in result.columns
+        assert list(result['skin_pattern_resnet18_predicted_pattern']) == [
+            'Leopard', 'White', 'Leopard',
+        ]
+        assert list(result['skin_pattern_resnet18_confidence']) == [0.9, 0.8, 0.7]
+        assert list(result['skin_pattern_resnet18_prob_Leopard']) == [0.9, 0.1, 0.7]
+        assert list(df.columns) == list(_make_reduce_df(3).columns)  # original untouched
+
+    def test_attach_classification_columns_raises_on_missing_from_classification(
+        self, tmp_path: Path,
+    ):
+        # Arrange
+        df = _make_reduce_df(3)
+        classification_df = pd.DataFrame({
+            'video_name': ['Day1_Tank2_Cuttle1_Resident_Crop'] * 2,
+            'frame_number': [0, 1],
+            'predicted_pattern': ['Leopard', 'White'],
+        })
+        classification_path = _write_parquet(
+            tmp_path / 'skin_pattern_resnet18.parquet', classification_df,
+        )
+
+        # Act & Assert
+        with pytest.raises(ValueError, match='does not match'):
+            data.attach_classification_columns(df, classification_path)
+
+
 class TestColorableColumns:
     """Test the function colorable_columns."""
 

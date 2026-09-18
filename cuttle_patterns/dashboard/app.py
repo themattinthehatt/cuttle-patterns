@@ -138,7 +138,13 @@ def make_document(doc: Document, results_dir: Path) -> None:
         doc: the Bokeh `Document` to populate.
         results_dir: the resolved results directory (holds `beast_models/`).
     """
-    state: dict = {'df': None, 'cluster_paths': {}, 'reduce_paths': {}}
+    classification_paths = {p.name: p for p in data.list_classification_paths(results_dir)}
+    state: dict = {
+        'df': None,
+        'cluster_paths': {},
+        'reduce_paths': {},
+        'classification_paths': classification_paths,
+    }
 
     source = ColumnDataSource(data=_empty_source_data())
 
@@ -146,6 +152,10 @@ def make_document(doc: Document, results_dir: Path) -> None:
     reduce_select = Select(title='Reduction', options=[], value='')
     cluster_label = Div(text='<b>Cluster attributes</b>')
     cluster_checkbox = CheckboxGroup(labels=[], active=[])
+    # classifications aren't scoped to a model, unlike clusters above, so this list is
+    # populated once here rather than refreshed in on_model_change
+    classification_label = Div(text='<b>Classification attributes</b>')
+    classification_checkbox = CheckboxGroup(labels=sorted(classification_paths), active=[])
     color_select = Select(title='Color by', options=[], value='')
     error_div = Div(text='', styles={'color': 'red'})
 
@@ -213,6 +223,18 @@ def make_document(doc: Document, results_dir: Path) -> None:
         reduce_select.options = sorted(state['reduce_paths'])
         cluster_checkbox.labels = sorted(state['cluster_paths'])
 
+    def _apply_checked_classifications() -> None:
+        # classification files are model-independent, so a reduction change doesn't
+        # clear classification_checkbox.active the way it clears cluster_checkbox.active
+        # above — instead, whatever's already checked gets reattached to the new df
+        for idx in classification_checkbox.active:
+            label = classification_checkbox.labels[idx]
+            classification_path = state['classification_paths'][label]
+            try:
+                state['df'] = data.attach_classification_columns(state['df'], classification_path)
+            except ValueError as e:
+                error_div.text = f'<b>Error:</b> {e}'
+
     def on_reduce_change(attr: str, old: str, new: str) -> None:
         cluster_checkbox.active = []
         if not new:
@@ -220,6 +242,7 @@ def make_document(doc: Document, results_dir: Path) -> None:
             return
         state['df'] = data.load_reduce_dataframe(state['reduce_paths'][new])
         error_div.text = ''
+        _apply_checked_classifications()
         _refresh_source()
 
     def on_cluster_toggle(attr: str, old: list[int], new: list[int]) -> None:
@@ -248,6 +271,35 @@ def make_document(doc: Document, results_dir: Path) -> None:
 
         _refresh_source()
 
+    def on_classification_toggle(attr: str, old: list[int], new: list[int]) -> None:
+        if state['df'] is None:
+            return
+
+        labels = classification_checkbox.labels
+        newly_checked = [labels[i] for i in new if i not in old]
+        newly_unchecked = [labels[i] for i in old if i not in new]
+
+        for label in newly_unchecked:
+            prefix = f'{Path(label).stem}_'
+            drop_columns = [c for c in state['df'].columns if c.startswith(prefix)]
+            if drop_columns:
+                state['df'] = state['df'].drop(columns=drop_columns)
+
+        for label in newly_checked:
+            classification_path = state['classification_paths'][label]
+            try:
+                state['df'] = data.attach_classification_columns(state['df'], classification_path)
+            except ValueError as e:
+                error_div.text = f'<b>Error:</b> {e}'
+                idx = labels.index(label)
+                classification_checkbox.active = [
+                    i for i in classification_checkbox.active if i != idx
+                ]
+                continue
+            error_div.text = ''
+
+        _refresh_source()
+
     def on_color_change(attr: str, old: str, new: str) -> None:
         df = state['df']
         if df is None or df.empty or not new:
@@ -258,10 +310,14 @@ def make_document(doc: Document, results_dir: Path) -> None:
     model_select.on_change('value', on_model_change)
     reduce_select.on_change('value', on_reduce_change)
     cluster_checkbox.on_change('active', on_cluster_toggle)
+    classification_checkbox.on_change('active', on_classification_toggle)
     color_select.on_change('value', on_color_change)
 
     controls = column(
-        model_select, reduce_select, cluster_label, cluster_checkbox, color_select, error_div,
+        model_select, reduce_select,
+        cluster_label, cluster_checkbox,
+        classification_label, classification_checkbox,
+        color_select, error_div,
         width=300,
     )
     doc.add_root(row(controls, plot, sizing_mode='stretch_both'))
