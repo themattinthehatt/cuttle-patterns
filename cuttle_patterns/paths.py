@@ -7,6 +7,8 @@ relative paths, so the tree layout only has to change in one place:
     results_dir/
     ├── beast_frames/                      # cuttle extract -> BEAST training frames
     ├── beast_frames_qc/
+    │   ├── clusters/
+    │   │   └── {model_name}_{cluster_run}/    # scratch/plot_cluster_frames.py
     │   └── reconstructions/
     │       └── {model_name}/              # scripts/make_reconstruction_clip.py
     ├── beast_models/
@@ -53,3 +55,7 @@ CLASSIFICATIONS_RELPATH = Path('classifications')
 # QC clips (scripts/make_mantle_clip.py, scripts/make_reconstruction_clip.py)
 MEDIA_RELPATH = Path('media')
 BEAST_FRAMES_QC_RECONSTRUCTIONS_RELPATH = Path('beast_frames_qc') / 'reconstructions'
+
+# per-cluster representative frame grids (scratch/plot_cluster_frames.py); one
+# subdirectory per {model_name}_{cluster_run} combination
+CLUSTER_FRAME_GRIDS_RELPATH = Path('beast_frames_qc') / 'clusters'
