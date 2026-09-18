@@ -469,6 +469,44 @@ aligned frame image, colored by cluster.
   without rebuilding the UI.
 - Likely filters: by session, by fish, by cluster.
 
+### Supervised classification overlay — implemented
+
+**Status:** a collaborator is fitting a supervised skin-pattern classifier (ResNet18, 6
+classes) in parallel to this project's unsupervised embedding/clustering track, on frame
+crops from the same `cuttle extract` pipeline. `scripts/classify_skin_pattern.py` runs
+her shared model (`skin_pattern_resnet18_best.pt` + `behaviors.json`, both delivered
+outside this repo) over every frame under `results_dir/beast_frames/` — the same
+anchor-plus-context-neighbor set `cuttle predict`/`reduce`/`cluster` already operate on,
+not just the anchors in `manifests/extract.parquet` — and writes one row per frame to
+`results_dir/classifications/{name}.parquet` (`{name}` defaults to the weights file's
+stem): `predicted_pattern` (hard label), `confidence`, `margin_top1_minus_top2`, and one
+`prob_{class}` column per class (the full probability vector, not just argmax — per the
+classifier author's own recommendation, so ambiguous/blended frames are visible as a
+continuous quantity rather than collapsed into one label).
+
+Unlike a `cuttle cluster` output, this file is **not** scoped to a particular BEAST
+model — the classifier only depends on the frame image, not any embedding — so it lives
+directly under `results_dir/classifications/`, not under a `beast_models/{model_name}/`
+directory (see `cuttle_patterns/paths.py`'s `CLASSIFICATIONS_RELPATH`).
+
+`cuttle serve` gained a second, independent "Classification attributes" checkbox list
+(`cuttle_patterns/dashboard/{data,app}.py`) alongside the existing per-model "Cluster
+attributes" one: checking a file attaches every one of its columns (not just one, unlike
+a cluster file), each prefixed with the file's stem (`{stem}_predicted_pattern`,
+`{stem}_prob_Leopard`, ...) so multiple classifier runs could be compared side by side.
+Since it's model-independent, the checkbox list is populated once at document build and
+stays populated across model/reduction switches — the dashboard reattaches whatever's
+checked to the freshly-loaded reduction dataframe rather than clearing it the way
+`cluster_checkbox` clears on a reduction change.
+
+**Known limitation (from the classifier's own README):** the model was trained on
+single-animal crops with the background already masked, matching this pipeline's
+`cuttle inscribe` output — accuracy is expected to degrade on frames with visible
+tank/background or a second animal. It also confuses "Pale aggression" and "Black
+border" most often (recall 0.63–0.64 vs. 0.87–0.99 for the other four classes) — if the
+UMAP smears those two together too, that may reflect genuine visual similarity the
+classifier also struggles with, not just an embedding-quality issue.
+
 ---
 
 ## Phase 8: Iteration & analysis

@@ -6,6 +6,51 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Classifier predictions: model-independent `classifications/` dir, not per-model `clusters/`
+
+**Date:** 2026-09-18
+**Status:** decided, implemented
+
+**Decision:** `scripts/classify_skin_pattern.py` runs a collaborator's supervised
+skin-pattern classifier over every frame under `results_dir/beast_frames/` and writes
+predictions to a new top-level `results_dir/classifications/{name}.parquet` (new
+`paths.CLASSIFICATIONS_RELPATH`), rather than dropping the file into an existing
+`beast_models/{model_name}/clusters/` directory the way `cuttle cluster` output does.
+`cuttle serve`'s dashboard (`cuttle_patterns/dashboard/{data,app}.py`) gained a second,
+independent "Classification attributes" checkbox list, populated once at document build
+and left populated across model/reduction switches, rather than reusing the existing
+per-model "Cluster attributes" list. Checking a classification file attaches *all* of
+its non-index columns (`predicted_pattern`, `confidence`, `margin_top1_minus_top2`, one
+`prob_{class}` per class), each prefixed with the file's stem — not just a single
+renamed `cluster` column, since exposing the full probability vector (not just argmax)
+as continuous color-by options was the classifier author's own explicit rationale for
+outputting it (see [PHASES.md](PHASES.md)'s Phase 7 "Supervised classification overlay"
+entry).
+
+**Why:** the classifier's predictions depend only on the frame image, not on any
+particular BEAST embedding/model — placing the file under a specific model's `clusters/`
+directory (or duplicating it into every model's) would have implied a coupling to that
+model that doesn't exist, and would have needed a copy per model to be visible when
+switching between them in the dashboard. A model-independent top-level directory means
+one classifier run stays visible and attachable regardless of which model/reduction is
+currently selected.
+
+**Alternatives considered:** writing the classifier output as a single `cluster` column
+and dropping it into every model's `clusters/` directory, so it would show up in the
+existing checkbox list with zero dashboard code changes — rejected: semantically odd
+(the same file duplicated per model), and would have thrown away the probability-vector
+columns unless the mechanism were generalized anyway, in which case there was no
+remaining benefit to reusing the model-scoped location.
+
+**Trade-off / known risk:** the classifier itself is a separate, collaborator-maintained
+artifact delivered outside this repo (weights + `behaviors.json`, currently at
+`/media/mattw/CUTTLE/classification/2026-09-09_classifier_model/`) — this repo has no way
+to detect a mismatched or stale weights/behaviors pairing beyond what the classifier's
+own script already checks. `scripts/classify_skin_pattern.py` is a script, not a `cuttle`
+subcommand yet, per the existing "scripts/ directory" convention below.
+
+---
+
 ## MSPS-VAE: reconstruction-based fix for video-identity-dominated clustering
 
 **Date:** 2026-08-31
