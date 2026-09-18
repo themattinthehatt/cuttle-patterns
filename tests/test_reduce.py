@@ -27,10 +27,17 @@ class TestHparamsToStr:
 
     def test_hparams_to_str_formats_values(self):
         # Act
+        result = hparams_to_str(n_neighbors=15, min_dist=0.1, metric='cosine')
+
+        # Assert
+        assert result == 'nn15_md0.1_cosine'
+
+    def test_hparams_to_str_defaults_metric(self):
+        # Act
         result = hparams_to_str(n_neighbors=15, min_dist=0.1)
 
         # Assert
-        assert result == 'nn15_md0.1'
+        assert result == 'nn15_md0.1_euclidean'
 
 
 class TestBuildUmapDataframe:
