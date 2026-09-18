@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from cuttle_patterns.eval.load_embeddings import EmbedderSpec
 from cuttle_patterns.eval.report import (
@@ -78,13 +79,18 @@ class TestRunReport:
         assert list(scoreboard.columns) == SCOREBOARD_COLUMNS
 
 
+def _make_scoreboard_row(embedder: str, value: float = 0.5) -> pd.DataFrame:
+    row = pd.DataFrame([dict.fromkeys(SCOREBOARD_COLUMNS, value)])
+    row['embedder'] = embedder
+    return row
+
+
 class TestWriteReport:
     """Test the function write_report."""
 
     def test_writes_markdown_and_json(self, tmp_path):
         # Arrange
-        scoreboard = pd.DataFrame([dict.fromkeys(SCOREBOARD_COLUMNS, 0.5)])
-        scoreboard['embedder'] = 'my-model'
+        scoreboard = _make_scoreboard_row('my-model')
         out_dir = tmp_path / 'eval_results' / 'run1'
 
         # Act
@@ -94,3 +100,29 @@ class TestWriteReport:
         assert (out_dir / 'scoreboard.md').is_file()
         metrics = json.loads((out_dir / 'metrics.json').read_text())
         assert metrics[0]['embedder'] == 'my-model'
+
+    def test_adds_new_embedder_without_dropping_existing(self, tmp_path):
+        # Arrange
+        out_dir = tmp_path / 'eval_results'
+        write_report(_make_scoreboard_row('model-a', value=0.1), out_dir)
+
+        # Act
+        write_report(_make_scoreboard_row('model-b', value=0.2), out_dir)
+
+        # Assert
+        metrics = json.loads((out_dir / 'metrics.json').read_text())
+        assert {row['embedder'] for row in metrics} == {'model-a', 'model-b'}
+
+    def test_rerunning_same_embedder_replaces_its_row(self, tmp_path):
+        # Arrange
+        out_dir = tmp_path / 'eval_results'
+        write_report(_make_scoreboard_row('model-a', value=0.1), out_dir)
+
+        # Act
+        write_report(_make_scoreboard_row('model-a', value=0.9), out_dir)
+
+        # Assert
+        metrics = json.loads((out_dir / 'metrics.json').read_text())
+        assert len(metrics) == 1
+        assert metrics[0]['embedder'] == 'model-a'
+        assert metrics[0]['ami_cluster_class_mean'] == pytest.approx(0.9)

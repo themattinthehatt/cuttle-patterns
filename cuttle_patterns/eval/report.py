@@ -130,16 +130,44 @@ def _to_markdown_table(frame: pd.DataFrame) -> str:
     return '\n'.join(lines) + '\n'
 
 
+def _load_existing_scoreboard(metrics_path: Path) -> pd.DataFrame | None:
+    """Load a previously written `metrics.json`, if any.
+
+    Args:
+        metrics_path: path to a `write_report`-written `metrics.json`.
+
+    Returns:
+        the previous scoreboard, or `None` if `metrics_path` doesn't exist or is empty.
+    """
+    if not metrics_path.is_file():
+        return None
+    records = json.loads(metrics_path.read_text())
+    if not records:
+        return None
+    return pd.DataFrame(records)
+
+
 def write_report(scoreboard: pd.DataFrame, out_dir: Path) -> None:
-    """Write the scoreboard as both markdown and JSON.
+    """Merge `scoreboard` into any existing report at `out_dir` and write both files.
+
+    Rows are keyed by `embedder`: an existing row is kept unless `scoreboard` has a row
+    with the same `embedder` id, which replaces it — so rerunning with a new embedder
+    adds it to the scoreboard instead of discarding every other embedder's results.
 
     Args:
         scoreboard: output of `run_report`.
-        out_dir: directory to write `scoreboard.md`/`metrics.json` into; created if
+        out_dir: directory to read/write `scoreboard.md`/`metrics.json` in; created if
             missing.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / 'metrics.json').write_text(
-        json.dumps(scoreboard.to_dict(orient='records'), indent=2)
-    )
-    (out_dir / 'scoreboard.md').write_text(_to_markdown_table(scoreboard))
+    metrics_path = out_dir / 'metrics.json'
+
+    existing = _load_existing_scoreboard(metrics_path)
+    if existing is not None:
+        existing = existing[~existing['embedder'].isin(scoreboard['embedder'])]
+        merged = pd.concat([existing, scoreboard], ignore_index=True)[SCOREBOARD_COLUMNS]
+    else:
+        merged = scoreboard
+
+    metrics_path.write_text(json.dumps(merged.to_dict(orient='records'), indent=2))
+    (out_dir / 'scoreboard.md').write_text(_to_markdown_table(merged))

@@ -132,6 +132,11 @@ so this resolves from anywhere, not just the repo root.
   convention as every other pipeline stage's output (`beast_models/`,
   `classifications/`, ...). Pass `--out-dir` to write somewhere else instead, and
   prints the scoreboard to stdout either way.
+- **Merges, doesn't overwrite:** rows are keyed by `embedder` id. If `metrics.json`
+  already exists at the output dir, a rerun keeps every existing row except ones whose
+  `embedder` id is in this run's `--model-name` list, which get replaced. So scoring a
+  new model doesn't drop the others — pass just the new `--model-name` to add it, no
+  need to re-list every embedder you've already scored.
 
 A real run against two checkpoints (a ResNet-18 AE and an MSPS-VAE) takes a couple of
 minutes — most of the cost is the linear-probe/k-NN metrics running once per embedder
