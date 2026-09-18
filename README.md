@@ -10,6 +10,8 @@ embedding via BEAST, and interactive tools for exploring the resulting pattern c
 - [docs/DECISIONS.md](docs/DECISIONS.md) — decision log
 - [docs/pose_estimation.md](docs/pose_estimation.md) — pose model used for pose-informed
   `cuttle inscribe`
+- [cuttle_patterns/eval/README.md](cuttle_patterns/eval/README.md) — embedding
+  evaluation harness
 
 ## Setup
 

@@ -154,24 +154,32 @@ treat them as evidence on their own.
 
 ## Code layout
 
+Lives inside the `cuttle_patterns` package, not as a separate top-level directory, so
+it's covered by the repo's normal install/lint/test setup with no extra wiring:
+
 ```
 cuttle-patterns/
-  eval/
-    build_manifest.py        # classifier-label join on top of extract.parquet
-    embedders/                # one module per Tier-B embedder, common interface
-    extract.py                 # cache Tier-B embeddings for a list of embedder ids
-    metrics.py                 # quantitative metrics, pure functions on arrays
-    qualitative.py             # cluster grids, fixed-query grids, UMAPs
-    report.py                  # scoreboard: one row per embedder, markdown + JSON
-  configs/eval.yaml             # manifest params, embedder list, k, seeds
+  cuttle_patterns/
+    eval/
+      build_manifest.py        # classifier-label join on top of extract.parquet
+      load_embeddings.py        # Tier A: load/align existing beast_models/ latents
+      clustering.py              # shared L2-normalize + PCA + k-means preprocessing
+      metrics.py                  # the five core metrics, pure functions on arrays
+      report.py                   # score_embedder / run_report / write_report
+      run_core.py                 # CLI entry point (not wired into `cuttle`)
+  tests/
+    eval/                        # mirrors cuttle_patterns/eval/, like every other module
 ```
 
-A single command (`python -m eval.run --config configs/eval.yaml`) should build or reuse
-the manifest, extract any uncached Tier-B embeddings, and write `eval_results/{run_id}/`
-containing `metrics.json`, `scoreboard.md`, and the figures. Metrics code should be
-unit-testable on synthetic embeddings — in particular, a test where embeddings are
-one-hot video IDs plus noise, confirming the identity metric fires and the pattern
-metric doesn't.
+`python -m cuttle_patterns.eval.run_core --classifier-name ... --model-name ...` builds
+the manifest, scores every requested model, and writes `{results_dir}/eval/` (see
+`cuttle_patterns.paths.EVAL_RELPATH`) containing `metrics.json` and `scoreboard.md` —
+see [`cuttle_patterns/eval/README.md`](../cuttle_patterns/eval/README.md)
+for the full walkthrough. Tier-B extraction (`embedders/`, `extract.py`) and qualitative
+outputs (`qualitative.py`) aren't built yet — deferred, per "Deferred to v2" / "Out of
+scope for now" above. Metrics are unit-tested on synthetic embeddings, including a case
+where embeddings are one-hot video IDs plus noise, confirming the identity metric fires
+and the pattern metric doesn't (`tests/eval/test_metrics.py`).
 
 ## Build order
 
