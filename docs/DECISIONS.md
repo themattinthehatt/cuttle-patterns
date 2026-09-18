@@ -6,6 +6,42 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## MSPS-VAE: reconstruction-based fix for video-identity-dominated clustering
+
+**Date:** 2026-08-31
+**Status:** decided, implemented (beast side); training in progress
+
+**Decision:** Add a new backbone-training track alongside the ResNet-AE and ViT+InfoNCE:
+an MSPS-VAE-style model (ResNet18 autoencoder with a structurally orthogonal two-subspace
+latent bottleneck — `z_u` unsupervised/pattern, `z_b` background/identity shaped by a
+triplet loss). Implemented on a new `msps-vae` branch in the `beast` repo
+(`model_class: msps_vae`), with a mirrored config here at `configs/beast_msps_vae.yaml`.
+Full design rationale, architecture, sampler design, hyperparameter calibration, and open
+questions live in [msps_vae_implementation.md](msps_vae_implementation.md) — this entry
+is a pointer, not a duplicate.
+
+**Why:** UMAP projections of both prior backbones clustered primarily by `video_name`
+rather than pattern type; MSPS-VAE reframes the problem as reconstruction-based, using
+free session/video-identity labels to explicitly separate identity from pattern content,
+instead of needing genuine cross-individual "same pattern" positive pairs a contrastive
+approach would require. See the linked doc's Motivation section for the full diagnosis.
+
+**Alternatives considered:** see the linked doc — further contrastive-sampling changes to
+the ViT+InfoNCE path weren't pursued once MSPS-VAE (a reconstruction-based approach from
+the user's own prior published work) was identified as sidestepping the core difficulty
+rather than working around it.
+
+**Trade-off / known risk:** implemented in `beast`, not `cuttle_patterns`, per the
+"cuttle train/predict: subprocess wrappers" decision below — see the linked doc's "Where
+this lives" section for why. Hyperparameters (latent split, triplet margin/weight) are
+calibrated from the existing ResNet-AE's measured latent scale, not from an actual
+MSPS-VAE run — still subject to revision once real training results land. A real
+performance bug (O(n) list-membership check in the new triplet sampler) caused the first
+training attempt to run ~10x slower than the ResNet-AE baseline; found and fixed — see
+the linked doc's "Implementation gotcha" section.
+
+---
+
 ## Small-rectangle filter: exclude frames where the box is much shorter than the body
 
 **Date:** 2026-08-28

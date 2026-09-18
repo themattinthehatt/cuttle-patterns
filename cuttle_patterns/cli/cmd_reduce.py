@@ -7,7 +7,7 @@ from pathlib import Path
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
-from cuttle_patterns.embeddings import load_latents
+from cuttle_patterns.embeddings import LATENT_SPACE_ALL, load_latents, split_latent_spaces
 from cuttle_patterns.reduce import (
     DEFAULT_METRIC,
     DEFAULT_MIN_DIST,
@@ -78,7 +78,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 
 def cmd_reduce(args: argparse.Namespace) -> None:
-    """Run UMAP over a model's latents and write the projection to a parquet file.
+    """Run UMAP over a model's latents and write the projection(s) to parquet file(s).
+
+    For an `msps_vae` model, this runs UMAP separately over each of the two latent
+    subspaces (`split_latent_spaces`) and writes one parquet file per subspace, so both
+    show up as separate reductions in the bokeh app. Every other model class writes a
+    single file, as before.
 
     Args:
         args: parsed command-line arguments
@@ -98,25 +103,29 @@ def cmd_reduce(args: argparse.Namespace) -> None:
 
     try:
         X, meta = load_latents(latents_dir)
+        subspaces = split_latent_spaces(X, model_dir)
     except (FileNotFoundError, ValueError) as e:
         print(f'Error: {e}')
         sys.exit(1)
 
-    umap_xy = run_umap(
-        X,
-        n_neighbors=args.n_neighbors,
-        min_dist=args.min_dist,
-        metric=args.metric,
-        random_state=args.random_state,
-    )
-    df = build_umap_dataframe(meta, umap_xy)
-
     hparams = hparams_to_str(args.n_neighbors, args.min_dist)
     output_dir = model_dir / paths.REDUCE_RELPATH
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f'umap_{hparams}.parquet'
-    if output_path.exists():
-        print(f'Warning: overwriting existing {output_path}')
 
-    df.to_parquet(output_path, index=False)
-    print(f'Wrote {len(df)} rows to {output_path}')
+    for space_name, X_space in subspaces.items():
+        umap_xy = run_umap(
+            X_space,
+            n_neighbors=args.n_neighbors,
+            min_dist=args.min_dist,
+            metric=args.metric,
+            random_state=args.random_state,
+        )
+        df = build_umap_dataframe(meta, umap_xy)
+
+        suffix = '' if space_name == LATENT_SPACE_ALL else f'_{space_name}'
+        output_path = output_dir / f'umap_{hparams}{suffix}.parquet'
+        if output_path.exists():
+            print(f'Warning: overwriting existing {output_path}')
+
+        df.to_parquet(output_path, index=False)
+        print(f'Wrote {len(df)} rows to {output_path}')
