@@ -20,8 +20,8 @@ predictions to a new top-level `results_dir/classifications/{name}.parquet` (new
 independent "Classification attributes" checkbox list, populated once at document build
 and left populated across model/reduction switches, rather than reusing the existing
 per-model "Cluster attributes" list. Checking a classification file attaches *all* of
-its non-index columns (`predicted_pattern`, `confidence`, `margin_top1_minus_top2`, one
-`prob_{class}` per class), each prefixed with the file's stem — not just a single
+its non-index columns (`predicted_pattern`, `confidence`, one `prob_{class}` per class),
+each prefixed with the file's stem — not just a single
 renamed `cluster` column, since exposing the full probability vector (not just argmax)
 as continuous color-by options was the classifier author's own explicit rationale for
 outputting it (see [PHASES.md](PHASES.md)'s Phase 7 "Supervised classification overlay"

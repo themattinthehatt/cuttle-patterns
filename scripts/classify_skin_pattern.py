@@ -142,10 +142,9 @@ def predict_frame_classes(
 
     Returns:
         one row per frame, with columns `video_name`, `frame_number`,
-        `predicted_pattern`, `confidence`, `margin_top1_minus_top2`, and one
-        `prob_{class_name}` column per class (spaces replaced with underscores), sorted
-        by `(video_name, frame_number)` to match
-        `cuttle_patterns.embeddings.load_latents`'s row order.
+        `predicted_pattern`, `confidence`, and one `prob_{class_name}` column per class
+        (spaces replaced with underscores), sorted by `(video_name, frame_number)` to
+        match `cuttle_patterns.embeddings.load_latents`'s row order.
     """
     loader = DataLoader(
         FrameDataset(frame_paths), batch_size=batch_size, shuffle=False, num_workers=num_workers,
@@ -160,13 +159,11 @@ def predict_frame_classes(
                 frame_path = Path(image_path)
                 frame_match = FRAME_FILENAME_PATTERN.match(frame_path.stem)
                 top1_idx = int(frame_probs.argmax())
-                sorted_probs = sorted(frame_probs, reverse=True)
                 row = {
                     'video_name': frame_path.parent.name,
                     'frame_number': int(frame_match['frame_number']),
                     'predicted_pattern': classes[top1_idx],
-                    'confidence': float(sorted_probs[0]),
-                    'margin_top1_minus_top2': float(sorted_probs[0] - sorted_probs[1]),
+                    'confidence': float(frame_probs[top1_idx]),
                 }
                 for class_name, prob in zip(classes, frame_probs, strict=True):
                     safe_class_name = class_name.replace(' ', '_')

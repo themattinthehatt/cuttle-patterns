@@ -479,10 +479,10 @@ outside this repo) over every frame under `results_dir/beast_frames/` — the sa
 anchor-plus-context-neighbor set `cuttle predict`/`reduce`/`cluster` already operate on,
 not just the anchors in `manifests/extract.parquet` — and writes one row per frame to
 `results_dir/classifications/{name}.parquet` (`{name}` defaults to the weights file's
-stem): `predicted_pattern` (hard label), `confidence`, `margin_top1_minus_top2`, and one
-`prob_{class}` column per class (the full probability vector, not just argmax — per the
-classifier author's own recommendation, so ambiguous/blended frames are visible as a
-continuous quantity rather than collapsed into one label).
+stem): `predicted_pattern` (hard label), `confidence`, and one `prob_{class}` column per
+class (the full probability vector, not just argmax — per the classifier author's own
+recommendation, so ambiguous/blended frames are visible as a continuous quantity rather
+than collapsed into one label).
 
 Unlike a `cuttle cluster` output, this file is **not** scoped to a particular BEAST
 model — the classifier only depends on the frame image, not any embedding — so it lives
