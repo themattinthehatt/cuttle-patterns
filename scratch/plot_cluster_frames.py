@@ -111,21 +111,40 @@ def plot_cluster_grid(
         the assembled figure.
     """
     n_rows = int(np.ceil(len(sample_df) / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows), squeeze=False)
 
-    for ax, (_, row) in zip(axes.flat, sample_df.iterrows(), strict=False):
+    images = []
+    titles = []
+    for _, row in sample_df.iterrows():
         frame_path = build_frame_path(results_dir, row['video_name'], row['frame_number'])
-        image = load_frame_image(frame_path)
+        images.append(load_frame_image(frame_path))
+        titles.append(f"{row['video_name']}\nframe {row['frame_number']}")
+
+    # size each subplot's height to the frames' actual aspect ratio (BEAST crops are
+    # wide rectangles, not square) so imshow doesn't letterbox and waste vertical space
+    first_valid = next((image for image in images if image is not None), None)
+    aspect = first_valid.shape[0] / first_valid.shape[1] if first_valid is not None else 0.5
+    col_width = 2.5
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(col_width * n_cols, col_width * aspect * n_rows + 0.4 * n_rows),
+        squeeze=False,
+    )
+
+    for ax, image, title in zip(axes.flat, images, titles, strict=False):
         if image is not None:
             ax.imshow(image)
-        ax.set_title(f"{row['video_name']}\nframe {row['frame_number']}", fontsize=7)
+        ax.set_title(title, fontsize=6, pad=3)
         ax.axis('off')
 
     for ax in axes.flat[len(sample_df):]:
         ax.axis('off')
 
-    fig.suptitle(f'cluster {cluster_label} (n={len(sample_df)} shown)')
-    fig.tight_layout()
+    fig.suptitle(f'cluster {cluster_label} (n={len(sample_df)} shown)', y=0.995, fontsize=10)
+    fig.subplots_adjust(
+        top=1 - 0.4 / (col_width * aspect * n_rows + 0.4 * n_rows),
+        bottom=0.01, left=0.01, right=0.99, hspace=0.5, wspace=0.05,
+    )
     return fig
 
 
