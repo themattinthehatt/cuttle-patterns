@@ -9,6 +9,7 @@ relative paths, so the tree layout only has to change in one place:
     ├── beast_frames_qc/
     │   ├── clusters/
     │   │   └── {model_name}_{cluster_run}/    # scratch/plot_cluster_frames.py
+    │   ├── loss_mask/                     # scratch/plot_loss_weight_profiles.py
     │   └── reconstructions/
     │       └── {model_name}/              # scripts/make_reconstruction_clip.py
     ├── beast_models/
@@ -59,3 +60,6 @@ BEAST_FRAMES_QC_RECONSTRUCTIONS_RELPATH = Path('beast_frames_qc') / 'reconstruct
 # per-cluster representative frame grids (scratch/plot_cluster_frames.py); one
 # subdirectory per {model_name}_{cluster_run} combination
 CLUSTER_FRAME_GRIDS_RELPATH = Path('beast_frames_qc') / 'clusters'
+
+# MSPS-AE loss-weighting mask QC figures (scratch/plot_loss_weight_profiles.py)
+LOSS_MASK_QC_RELPATH = Path('beast_frames_qc') / 'loss_mask'

@@ -258,6 +258,86 @@ the first real run (`configs/beast_msps_vae.yaml` here, `configs/msps_vae.yaml` 
 new data plumbing needed, since `video_name` is already derived per-frame from the
 directory structure.
 
+## Spatial loss weighting for rectangle-inscription edge/corner leakage
+
+**Date:** 2026-09-18
+
+**Motivation:** inspecting representative frames per cluster for `iter-1.1_msps-vae_d16`'s
+`kmeans_k16` (`scratch/plot_cluster_frames.py`, via the dashboard) surfaced a second
+confound in `z_u`, distinct from the identity leakage the `z_b` split above already
+addresses: several clusters that are visually the same coarse pattern (e.g. "dark
+aggression" — dark base, white streaks/spots) split apart by *where* the inscribed
+rectangle's edge happens to catch a sliver of background just outside the body (clusters
+4/5/12 in that run: same pattern, but background visible in the lower-left, upper-left,
+and along the whole bottom edge respectively). Unlike the identity confound, this isn't
+predictable from the rectangle's absolute position or size in the raw frame
+(`scratch/compute_rectangle_scale.py` confirmed the inscribed rectangle's aspect ratio is
+exactly fixed at construction — `grow_rectangle` only ever searches over a single scale
+variable — so there's no per-frame anisotropic stretch to blame either, only a uniform
+scale factor that varies with body size/distance/contraction). The leakage is driven
+instead by the animal's instantaneous body shape/pose relative to `grow_rectangle`'s
+fixed-aspect box fit, which generically fits worst at the box's corners for a
+non-rectangular (elongated) body — i.e. it can occur regardless of where or how large the
+rectangle is, briefly, whenever the body's shape deviates from filling the box cleanly.
+
+**Decision:** down-weight reconstruction MSE spatially (a fixed, non-trainable per-pixel
+weight map multiplied into the loss), rather than crop the input or mask the input
+pixels. Reconstruction-loss weighting was chosen specifically because it requires no
+change to the input transform at inference time — masking/cropping the input would need
+to be applied identically, at extra pipeline cost, across every frame of every video at
+inference; a loss-only change touches training alone. Trade-off accepted knowingly: this
+only reduces the *incentive* to encode edge/corner content, it doesn't prevent the
+encoder from picking it up if doing so is cheap regardless of reward — if the confound
+persists after this change, that's the signal to revisit input-side masking despite its
+cost, not evidence the diagnosis was wrong. Runner-up profiles (plain Gaussian,
+super-Gaussian — both smooth but without the plateau/exact-zero-slope property below) are
+in `scratch/plot_loss_weight_profiles.py` alongside the chosen one, for the same reason
+this doc keeps runner-up options elsewhere (see Open questions below).
+
+**Chosen profile: raised-cosine (Tukey-style) radial taper.** Flat at weight 1.0 for
+`r <= r0`, a cosine taper down to exactly 0 (both value and slope) at `r = 1`, and exactly
+0 beyond:
+
+```
+w(r) = 1                                            for r <= r0
+w(r) = 0.5 * (1 + cos(pi * (r - r0) / (1 - r0)))     for r0 < r <= 1
+w(r) = 0                                            for r > 1
+```
+
+`r` is the distance from the (square) crop's center, normalized so `r = 1` sits at each
+edge's midpoint and corners sit at `r = sqrt(2)` — always past the taper's zero point,
+regardless of `r0`, so corners are fully ignored by construction with no corner-specific
+logic needed. Chosen over the Gaussian/super-Gaussian alternatives for having an explicit,
+interpretable plateau (rather than an approximate one) and for reaching zero with zero
+slope at the cutoff — no new discontinuity at the boundary for the model to exploit.
+Default `r0 = 0.5`, picked by eye from `scratch/plot_loss_weight_profiles.py`'s comparison
+figures (written to `results_dir/beast_frames_qc/loss_mask/`) — both the abstract
+radial-profile plot and the same three candidate masks overlaid on ~20 real sampled
+frames, resized to square the way the autoencoder sees them.
+
+**Normalization spec:** the weight map is precomputed once (not trainable, no grad) at
+whatever square side length the MSPS-VAE's actual input resolution is, then
+**renormalized so its mean is 1.0** before being multiplied into the per-pixel squared
+error:
+
+```python
+weight_map = weight_map / weight_map.mean()          # keeps average weight ≈ 1
+loss = ((recon - target) ** 2 * weight_map).mean()
+```
+
+Without this, the loss's overall magnitude drops just from adding the map (most of it is
+small or zero), which would silently shift the balance against the triplet term's fixed
+`triplet_weight` (see Config surface above) — renormalizing keeps the reconstruction
+term's scale where it was, so the existing `triplet_weight=0.1`/`margin=1.0` calibration
+stays valid and the only real change is *which pixels* contribute to the loss.
+
+**Scope:** training-side loss change only, in `beast/models/msps_vae/msps_vae_model.py`'s
+loss computation. No change to `cuttle extract`/`align`, and no change to the input
+pipeline at inference — same reasoning as the "Where this lives" section above, keep
+beast-side changes contained to what training actually needs.
+
+**Status: not yet implemented** — this section records the spec ahead of implementation.
+
 ## Evaluation / validation plan
 
 Replacing "eyeball the UMAP colored by `video_name`" with concrete checks:
@@ -307,6 +387,12 @@ Replacing "eyeball the UMAP colored by `video_name`" with concrete checks:
 - **TC penalty within `z_u`** — present in the base PS-VAE for the supervised/unsupervised
   split, omitted here; add later only if `z_u`'s own dimensions look entangled in a way
   that hurts downstream clustering.
+- **Raised-cosine `r0` for the edge/corner loss weighting** (see the section above) —
+  `r0=0.5` was picked by eye from comparison figures, not derived; revisit if the leakage
+  probe/session-swap checks show it's cutting into real body pattern (too small) or not
+  suppressing the edge confound enough (too large). Loss-weighting-only was chosen over
+  also masking the input specifically to avoid added inference-time cost; if this alone
+  doesn't resolve the confound, that cost becomes worth paying.
 
 **Resolved during implementation:**
 - **`torch.nn.init.orthogonal_` vs. `scipy.stats.ortho_group`** — used
