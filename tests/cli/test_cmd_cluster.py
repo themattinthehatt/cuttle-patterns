@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from cuttle_patterns.cli.cmd_cluster import cmd_cluster
 
@@ -27,15 +28,27 @@ def _make_latents(
     results_dir: Path,
     model_name: str = 'resnet-ae-v1',
     n_frames: int = 5,
+    model_class: str = 'resnet_ae',
+    num_latents_unsupervised: int | None = None,
 ) -> Path:
+    model_dir = results_dir / 'beast_models' / model_name
     latents_dir = (
-        results_dir / 'beast_models' / model_name / 'image_predictions' / 'beast_frames'
-        / 'latents' / 'Day1_Tank2_Cuttle1_Resident_Crop'
+        model_dir / 'image_predictions' / 'beast_frames' / 'latents'
+        / 'Day1_Tank2_Cuttle1_Resident_Crop'
     )
     latents_dir.mkdir(parents=True)
     rng = np.random.default_rng(0)
     for i in range(n_frames):
         np.save(latents_dir / f'img{i:08d}.npy', rng.normal(size=4).astype(np.float32))
+
+    config = {'model': {'model_class': model_class}}
+    if model_class == 'msps_vae':
+        config['model']['model_params'] = {
+            'num_latents_unsupervised': num_latents_unsupervised,
+        }
+    with (model_dir / 'config.yaml').open('w') as f:
+        yaml.safe_dump(config, f)
+
     return latents_dir
 
 
@@ -95,3 +108,45 @@ class TestCmdCluster:
 
         # Assert
         assert 'overwriting existing' in capsys.readouterr().out
+
+    def test_cmd_cluster_msps_vae_clusters_unsupervised_only(self, tmp_path: Path):
+        # Arrange: dims 0-1 (unsupervised) group frames {0,1} vs {2,3}; dims 2-3
+        # (background), at a much larger scale, instead group {0,2} vs {1,3} — so
+        # clustering on the full vector would recover the background grouping instead
+        results_dir = tmp_path / 'results'
+        latents_dir = (
+            results_dir / 'beast_models' / 'msps-vae-v1' / 'image_predictions'
+            / 'beast_frames' / 'latents' / 'Day1_Tank2_Cuttle1_Resident_Crop'
+        )
+        latents_dir.mkdir(parents=True)
+        vectors = [
+            np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32),
+            np.array([0.1, 0.1, 1000.0, 1000.0], dtype=np.float32),
+            np.array([10.0, 10.0, 0.1, 0.1], dtype=np.float32),
+            np.array([10.1, 10.1, 1000.1, 1000.1], dtype=np.float32),
+        ]
+        for i, vector in enumerate(vectors):
+            np.save(latents_dir / f'img{i:08d}.npy', vector)
+
+        model_dir = results_dir / 'beast_models' / 'msps-vae-v1'
+        config = {
+            'model': {
+                'model_class': 'msps_vae',
+                'model_params': {'num_latents_unsupervised': 2},
+            },
+        }
+        with (model_dir / 'config.yaml').open('w') as f:
+            yaml.safe_dump(config, f)
+
+        args = _make_args(results_dir=results_dir, model_name='msps-vae-v1', n_clusters=2)
+
+        # Act
+        cmd_cluster(args)
+
+        # Assert
+        output_path = model_dir / 'clusters' / 'kmeans_k2.parquet'
+        df = pd.read_parquet(output_path).sort_values('frame_number')
+        labels = df['cluster'].tolist()
+        assert labels[0] == labels[1]
+        assert labels[2] == labels[3]
+        assert labels[0] != labels[2]

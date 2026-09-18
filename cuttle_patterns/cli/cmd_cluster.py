@@ -13,7 +13,7 @@ from cuttle_patterns.cluster import (
     run_kmeans,
 )
 from cuttle_patterns.config import load_config
-from cuttle_patterns.embeddings import load_latents
+from cuttle_patterns.embeddings import load_latents, select_cluster_latents, split_latent_spaces
 
 DEFAULT_PREDICTIONS_NAME = 'beast_frames'
 
@@ -76,6 +76,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 def cmd_cluster(args: argparse.Namespace) -> None:
     """Cluster a model's latents and write per-frame labels to a parquet file.
 
+    For an `msps_vae` model, clustering runs on the unsupervised subspace only
+    (`select_cluster_latents`) — the background subspace is shaped by the triplet loss
+    to separate by video identity, not pattern. Every other model class clusters on its
+    single latent space, as before.
+
     Args:
         args: parsed command-line arguments
     """
@@ -94,12 +99,14 @@ def cmd_cluster(args: argparse.Namespace) -> None:
 
     try:
         X, meta = load_latents(latents_dir)
+        subspaces = split_latent_spaces(X, model_dir)
     except (FileNotFoundError, ValueError) as e:
         print(f'Error: {e}')
         sys.exit(1)
+    X_cluster = select_cluster_latents(subspaces)
 
     run_method = METHODS[args.method]
-    labels = run_method(X, n_clusters=args.n_clusters, random_state=args.random_state)
+    labels = run_method(X_cluster, n_clusters=args.n_clusters, random_state=args.random_state)
     df = build_cluster_dataframe(meta, labels)
 
     hparams = hparams_to_str(args.n_clusters)

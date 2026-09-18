@@ -157,21 +157,61 @@ within the batch). `beast/data/datamodules.py`'s `BaseDataModule` generalized it
 `positive_window`) to dispatch to the right sampler/collate pair; `beast/train.py` routes
 `model_class == 'msps_vae'` to `sampler_kind='triplet'`.
 
-**Implementation gotcha — O(n) candidate-pool membership check.** `TripletBatchSampler`'s
-per-anchor positive-pool filter was copy-pasted from `ContrastBatchSampler`'s identical-
-looking line, `p in self.dataset_indices` — a plain Python list membership test. In
-`ContrastBatchSampler` this is cheap because its candidate pool is at most 2 items
-(idx_offset=1). Our windowed pool is up to ~2000 items (±1000 frames), so the same check
-runs ~1000x more often per anchor, against a list that can be tens of thousands of
-entries long. Benchmarked on a 50k-frame split: **~65 seconds of pure CPU overhead for a
-single batch's worth of anchor draws** with the list, vs. 15ms with a `set`. This is what
-caused a first training attempt to run ~10x slower than the plain ResNet-AE baseline.
-Fixed by adding a `self._dataset_indices_set` alongside the existing sorted list (which
-still has to stay a list — it's what keeps local subset positions aligned with the
-Subset's own global indices under `beast.data.datamodules._sequential_split`) and
-filtering against the set instead. Re-benchmarked at the same scale after the fix:
-~15ms/batch, negligible next to GPU forward/backward. Worth remembering if this sampler
-pattern is ever copied again with an even larger window/pool.
+**Implementation gotchas found post-implementation, all in `TripletBatchSampler`:**
+
+1. **O(n) candidate-pool membership check.** The per-anchor positive-pool filter was
+   copy-pasted from `ContrastBatchSampler`'s identical-looking line, `p in
+   self.dataset_indices` — a plain Python list membership test. In `ContrastBatchSampler`
+   this is cheap because its candidate pool is at most 2 items (idx_offset=1). Our
+   windowed pool is up to ~2000 items (±1000 frames), so the same check runs ~1000x more
+   often per anchor, against a list that can be tens of thousands of entries long.
+   Benchmarked on a 50k-frame split: **~65 seconds of pure CPU overhead for a single
+   batch's worth of anchor draws** with the list. This is what caused a first training
+   attempt to run ~10x slower than the plain ResNet-AE baseline. First fix: a `set` for
+   O(1) lookup (~15ms/batch). Second pass (see next item) removed the check entirely —
+   turned out to be dead code once local positions stopped needing sortedness (every
+   value in `pos_indices[i]` is, by construction, always a valid local position).
+
+2. **`_sequential_split` wasn't actually required — it was a symptom of sorting local
+   positions.** `Subset.__getitem__(j)` fetches via `self.indices[j]` in whatever order
+   the Subset was constructed with. But the sampler built its local-position bookkeeping
+   via `sorted(dataset.indices)`, which only agrees with `Subset.__getitem__` when
+   `dataset.indices` is already ascending — true for `_sequential_split`'s contiguous
+   ranges, false for `random_split`'s shuffled permutation. This forced `BaseDataModule`
+   to give any sampler-based model (`sampler_kind != 'none'`) a *sequential* train/val
+   split — first N frames train, rest val/test, by sorted path order — instead of a
+   random one, since swapping in `random_split` without fixing this would have silently
+   mispaired images (local position 42 in the sampler's bookkeeping ≠ position 42 in what
+   `Subset` actually returns). This had a real, non-obvious consequence for msps-vae
+   specifically: checked empirically on the real ~94k-frame/32-video dataset, the
+   sequential split put 31 videos in train and only 2 in val (1 of them never seen in
+   train at all) — vs. resnet's random split, where all 32 videos appear in both, a much
+   easier near-interpolation task. **This made `val_loss` not directly comparable between
+   the ResNet-AE and MSPS-VAE runs.** Fixed by dropping the `sorted()` call —
+   `extract_windowed_positive_pool` doesn't need global sortedness, it already sorts by
+   frame number *within* each video internally, so local position just needs to stay
+   consistent with whatever order the Subset gives it, sorted or not. `BaseDataModule`
+   now routes `sampler_kind='triplet'` through `random_split` (same as `'none'`);
+   `sampler_kind='contrastive'` (`ContrastBatchSampler`, untouched) still uses
+   `_sequential_split`, since it has the identical dormant dependency and wasn't part of
+   this fix.
+
+3. **`num_batches` was silently discarding ~half the dataset every epoch.** Each
+   successful pair only marks 2 frames used (the anchor and its chosen positive — unlike
+   `ContrastBatchSampler`, which marks up to 3), so the achievable pair count is
+   `anchors_per_replica // 2`, and the achievable batch count is that many pairs divided
+   by pairs-per-batch (`batch_size // 2`). The original formula divided by `batch_size`
+   (total images per batch) instead of `batch_size // 2` (pairs per batch) — an
+   accidental extra ~2x undercount, inherited from eyeballing `ContrastBatchSampler`'s own
+   (differently-justified) `// 3` without re-deriving it for this sampler's own
+   consumption pattern. Confirmed on the real dataset: before the fix, 512-batch epochs
+   covered only ~50% of available frames; after, ~98% (171 of a resnet-equivalent 175
+   batches — the shortfall is real, not an off-by-one: occasional pool depletion near
+   video edges/short videos means the literal `// 2` ideal can't always be hit exactly,
+   confirmed by measuring 174 actually achievable vs. 175 declared with no margin at all,
+   so a small 2% conservative margin was kept rather than the literal ideal formula — see
+   the code comment for why `__len__` must never exceed what `__iter__` actually
+   produces).
 
 This is deliberately *not* built as new code in `cuttle_patterns` reusing beast
 internals — `cuttle train` shells out to `beast train` as a subprocess (see "cuttle
@@ -297,14 +337,22 @@ On the `cuttle_patterns` side this needed only the new `configs/beast_msps_vae.y
 changes required there. The one real follow-up on this side is the `embeddings.py` loader
 change noted above (Phase 5/6 need to read `z_u` only from the concatenated latents file).
 
-**Status as of first training attempt:** implementation complete and unit-tested on the
-CPU-only paths (samplers, datamodule dispatch, model forward/loss/predict_step — see
-`tests/models/msps_vae/`, `tests/data/test_samplers.py`,
-`tests/data/test_datamodules.py` in beast); GPU integration test (`run_model_test`-style,
-actually calling `trainer.fit`) not yet added, deferred while the GPU was occupied by the
-8-latent ResNet-AE run. First real training attempt ran ~10x slower than the ResNet-AE
-baseline — root-caused and fixed (see "Implementation gotcha" above); training restarted
-after the fix.
+**Status as of the second training restart:** implementation complete and unit-tested on
+the CPU-only paths (samplers, datamodule dispatch, model forward/loss/predict_step — see
+`tests/models/msps_vae/`, `tests/data/test_samplers.py`, `tests/data/test_datamodules.py`
+in beast); GPU integration test (`run_model_test`-style, actually calling `trainer.fit`)
+not yet added, deferred while the GPU was occupied by the 8-latent ResNet-AE run and then
+the first two `iter-1.1_msps-vae_d16` attempts. Two rounds of real-run diagnosis so far —
+see "Implementation gotchas" above for all three fixes (candidate-pool lookup speed,
+split strategy, batch-count undercounting). First attempt: ~10x slower than ResNet-AE
+(candidate-pool lookup). Second attempt (after that fix): ran correctly, but comparing its
+TensorBoard curves against the ResNet-AE's surfaced two more issues — `train_mse_step`
+tracked resnet's closely and `train_triplet_step` was decreasing as expected, but
+`val_loss` looked substantially worse (turned out to be the split-coverage issue, not a
+real quality gap) and `lr-AdamW` looked different on a shared step axis (turned out to be
+identical per-epoch, just spread over fewer steps/epoch than resnet's, itself a symptom
+of the batch-count undercount). Both root-caused and fixed; training restarted again on
+the corrected sampler/split.
 
 ## References
 
