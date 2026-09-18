@@ -336,7 +336,14 @@ loss computation. No change to `cuttle extract`/`align`, and no change to the in
 pipeline at inference — same reasoning as the "Where this lives" section above, keep
 beast-side changes contained to what training actually needs.
 
-**Status: not yet implemented** — this section records the spec ahead of implementation.
+**Status: implemented**, on beast's `msps-vae` branch. New `model_params` fields:
+`use_spatial_loss_weight` (bool, default `false`) switches it on/off, and
+`spatial_loss_weight_r0` (default `0.5`) exposes the taper's plateau radius, matching the
+Open Questions note above that `r0` may need revisiting. When off, `compute_loss` is
+byte-for-byte the original unweighted `mse_loss` call — no behavior change for existing
+runs/configs. `configs/msps_vae.yaml` (beast) / `configs/beast_msps_vae.yaml` (here) both
+default it off, since it hasn't been validated against a real training run yet; flip it
+to `true` to try it on `iter-1.1_msps-vae_d16`'s successor run.
 
 ## Evaluation / validation plan
 
