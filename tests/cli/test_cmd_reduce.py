@@ -82,7 +82,8 @@ class TestCmdReduce:
 
         # Assert
         output_path = (
-            results_dir / 'beast_models' / 'resnet-ae-v1' / 'reduce' / 'umap_nn2_md0.1.parquet'
+            results_dir / 'beast_models' / 'resnet-ae-v1' / 'reduce'
+            / 'umap_nn2_md0.1_euclidean.parquet'
         )
         assert output_path.exists()
         df = pd.read_parquet(output_path)
@@ -126,8 +127,8 @@ class TestCmdReduce:
 
         # Assert
         reduce_dir = results_dir / 'beast_models' / 'msps-vae-v1' / 'reduce'
-        unsupervised_path = reduce_dir / 'umap_nn2_md0.1_unsupervised.parquet'
-        background_path = reduce_dir / 'umap_nn2_md0.1_background.parquet'
+        unsupervised_path = reduce_dir / 'umap_nn2_md0.1_euclidean_unsupervised.parquet'
+        background_path = reduce_dir / 'umap_nn2_md0.1_euclidean_background.parquet'
         assert unsupervised_path.exists()
         assert background_path.exists()
         assert len(pd.read_parquet(unsupervised_path)) == 6

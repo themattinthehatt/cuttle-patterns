@@ -108,7 +108,7 @@ def cmd_reduce(args: argparse.Namespace) -> None:
         print(f'Error: {e}')
         sys.exit(1)
 
-    hparams = hparams_to_str(args.n_neighbors, args.min_dist)
+    hparams = hparams_to_str(args.n_neighbors, args.min_dist, args.metric)
     output_dir = model_dir / paths.REDUCE_RELPATH
     output_dir.mkdir(parents=True, exist_ok=True)
 

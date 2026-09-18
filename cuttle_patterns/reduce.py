@@ -46,17 +46,18 @@ def run_umap(
     return reducer.fit_transform(X)
 
 
-def hparams_to_str(n_neighbors: int, min_dist: float) -> str:
-    """Build the `{hparams}` filename suffix for a given `n_neighbors`/`min_dist`.
+def hparams_to_str(n_neighbors: int, min_dist: float, metric: str = DEFAULT_METRIC) -> str:
+    """Build the `{hparams}` filename suffix for a given `n_neighbors`/`min_dist`/`metric`.
 
     Args:
         n_neighbors: UMAP's `n_neighbors`.
         min_dist: UMAP's `min_dist`.
+        metric: UMAP's `metric`.
 
     Returns:
-        string like `nn15_md0.1`.
+        string like `nn15_md0.1_euclidean`.
     """
-    return f'nn{n_neighbors}_md{min_dist}'
+    return f'nn{n_neighbors}_md{min_dist}_{metric}'
 
 
 def build_umap_dataframe(meta: pd.DataFrame, umap_xy: np.ndarray) -> pd.DataFrame:
