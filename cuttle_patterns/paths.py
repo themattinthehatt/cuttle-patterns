@@ -21,6 +21,9 @@ relative paths, so the tree layout only has to change in one place:
     │           └── {method}_{hparams}.parquet
     ├── classifications/                    # scripts/classify_skin_pattern.py
     │   └── {classifier_name}.parquet       # model-independent, unlike clusters/ above
+    ├── eval/                               # cuttle_patterns.eval.run_core
+    │   ├── metrics.json
+    │   └── scoreboard.md
     ├── manifests/
     │   ├── extract.parquet                # cuttle extract
     │   └── ingest.parquet                 # cuttle ingest
@@ -52,6 +55,9 @@ CLUSTERS_RELPATH = Path('clusters')
 # supervised classifier predictions (scripts/classify_skin_pattern.py) - independent of
 # any BEAST model, since classification only depends on the frame images
 CLASSIFICATIONS_RELPATH = Path('classifications')
+
+# embedding eval harness scoreboard (cuttle_patterns.eval.run_core)
+EVAL_RELPATH = Path('eval')
 
 # QC clips (scripts/make_mantle_clip.py, scripts/make_reconstruction_clip.py)
 MEDIA_RELPATH = Path('media')
