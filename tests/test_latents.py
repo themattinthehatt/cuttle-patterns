@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cuttle_patterns.latents import (
@@ -16,6 +17,12 @@ from cuttle_patterns.latents import (
 def _write_latent(path: Path, vector: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.save(path, vector)
+
+
+def _write_combined_latents(latents_dir: Path, X: np.ndarray, meta: pd.DataFrame) -> None:
+    latents_dir.mkdir(parents=True, exist_ok=True)
+    np.save(latents_dir / 'embeddings.npy', X)
+    meta.to_parquet(latents_dir / 'manifest.parquet', index=False)
 
 
 class TestParseVideoName:
@@ -92,6 +99,63 @@ class TestLoadLatents:
 
         # Act & Assert
         with pytest.raises(ValueError, match='no .npy latent files found'):
+            load_latents(latents_dir)
+
+    def test_load_latents_combined_format_success(self, tmp_path: Path):
+        # Arrange: written out of (video_name, frame_number) order, like a fresh
+        # `cuttle embed` run would be if it ever stopped pre-sorting
+        latents_dir = tmp_path / 'latents'
+        X = np.array([[5.0, 6.0], [3.0, 4.0], [1.0, 2.0]], dtype=np.float32)
+        meta = pd.DataFrame({
+            'video_name': [
+                'Day1_Tank2_Cuttle2_Intruder_Crop',
+                'Day1_Tank2_Cuttle1_Resident_Crop',
+                'Day1_Tank2_Cuttle1_Resident_Crop',
+            ],
+            'day': [1, 1, 1],
+            'tank': [2, 2, 2],
+            'role': ['Intruder', 'Resident', 'Resident'],
+            'frame_number': [5, 2, 1],
+        })
+        _write_combined_latents(latents_dir, X, meta)
+
+        # Act
+        result_X, result_meta = load_latents(latents_dir)
+
+        # Assert
+        assert result_meta['frame_number'].tolist() == [1, 2, 5]
+        assert result_meta['video_name'].tolist() == [
+            'Day1_Tank2_Cuttle1_Resident_Crop',
+            'Day1_Tank2_Cuttle1_Resident_Crop',
+            'Day1_Tank2_Cuttle2_Intruder_Crop',
+        ]
+        np.testing.assert_array_equal(result_X[0], [1.0, 2.0])
+        np.testing.assert_array_equal(result_X[1], [3.0, 4.0])
+        np.testing.assert_array_equal(result_X[2], [5.0, 6.0])
+
+    def test_load_latents_combined_format_missing_manifest(self, tmp_path: Path):
+        # Arrange
+        latents_dir = tmp_path / 'latents'
+        latents_dir.mkdir()
+        np.save(latents_dir / 'embeddings.npy', np.zeros((2, 2), dtype=np.float32))
+
+        # Act & Assert
+        with pytest.raises(FileNotFoundError, match='no manifest.parquet alongside it'):
+            load_latents(latents_dir)
+
+    def test_load_latents_combined_format_row_count_mismatch(self, tmp_path: Path):
+        # Arrange
+        latents_dir = tmp_path / 'latents'
+        X = np.zeros((3, 2), dtype=np.float32)
+        meta = pd.DataFrame({
+            'video_name': ['Day1_Tank2_Cuttle1_Resident_Crop'] * 2,
+            'day': [1, 1], 'tank': [2, 2], 'role': ['Resident', 'Resident'],
+            'frame_number': [1, 2],
+        })
+        _write_combined_latents(latents_dir, X, meta)
+
+        # Act & Assert
+        with pytest.raises(ValueError, match='rows but embeddings.npy has'):
             load_latents(latents_dir)
 
 
