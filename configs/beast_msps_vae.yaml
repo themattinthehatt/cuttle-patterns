@@ -5,8 +5,8 @@ model:
   model_class: msps_vae
   model_params:
     backbone: resnet18
-    num_latents_unsupervised: 12  # z_u; what downstream clustering (cuttle reduce/cluster) reads
-    num_latents_background: 4     # z_b; shaped by the triplet loss to organize by video identity
+    num_latents_unsupervised: 6  # z_u; what downstream clustering (cuttle reduce/cluster) reads
+    num_latents_background: 3     # z_b; shaped by the triplet loss to organize by video identity
     image_size: 224  # usually 224
     num_channels: 3  # 3 for RGB
     triplet_margin: 1.0
