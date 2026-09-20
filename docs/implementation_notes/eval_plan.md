@@ -111,7 +111,7 @@ cheap identity-removal baseline worth adding once the core scoreboard works — 
 L2-normalize, then PCA to 64 dimensions (or native dimension if smaller), with no
 whitening, and record variance retained. Start with a single **k=16** (matching the
 existing `kmeans_k16` convention already used in `iter-1.1_msps-vae_d16` and
-`../../scratch/plot_cluster_frames.py`), 5 seeds, mean ± std across seeds. Add k=8/32 later if
+`../../scripts/plot_cluster_frames.py`), 5 seeds, mean ± std across seeds. Add k=8/32 later if
 k=16 alone doesn't give a clear enough read.
 
 ## Metrics
@@ -138,7 +138,7 @@ variable once one beyond identity is available.
 
 ## Qualitative outputs
 
-Extend `../../scratch/plot_cluster_frames.py` (already exists) rather than replacing it. For
+Extend `../../scripts/plot_cluster_frames.py` (already exists) rather than replacing it. For
 each cluster (k=16, first seed), produce a frame grid that samples **across videos** (at
 most 2 frames per video per grid), with each tile annotated by video and classifier
 class. This stops a cluster from looking coherent just because it's all one session.

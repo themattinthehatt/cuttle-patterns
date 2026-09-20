@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import umap
 
-DEFAULT_N_NEIGHBORS = 15
+DEFAULT_N_NEIGHBORS = 50
 DEFAULT_MIN_DIST = 0.1
 DEFAULT_METRIC = 'euclidean'
 DEFAULT_RANDOM_STATE = 42

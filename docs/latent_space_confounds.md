@@ -34,7 +34,7 @@ penalty needed): `z_u` (unsupervised/pattern, what clustering should read) and `
 [msps_vae_implementation.md](implementation_notes/msps_vae.md).
 
 This fixed the *identity* confound. It did not fix a second one, found once real
-per-cluster examples were inspected (`scratch/plot_cluster_frames.py`): several clusters
+per-cluster examples were inspected (`scripts/plot_cluster_frames.py`): several clusters
 that were visually the same coarse pattern (e.g. "dark aggression" — dark base, white
 streaks/spots) split apart by *where* the inscribed rectangle's edge happened to catch a
 sliver of background just outside the body — clusters 4/5/12 in the `iter-1.1_msps-vae_d16`
@@ -149,5 +149,5 @@ contrastive scheme genuinely don't resolve the pattern-vs-lower-level-feature co
 Once training completes, the existing evaluation plan in
 [msps_vae_implementation.md](implementation_notes/msps_vae.md) (leakage probe, session-swap
 reconstruction test, within-session sub-clustering check, plus the qualitative
-`scratch/plot_cluster_frames.py` inspection that found both confounds so far) applies
+`scripts/plot_cluster_frames.py` inspection that found both confounds so far) applies
 unchanged — no new evaluation machinery needed, just a fresh model to point it at.

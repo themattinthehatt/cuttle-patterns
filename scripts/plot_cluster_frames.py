@@ -11,7 +11,7 @@ Frame selection is uniform-random per cluster for now; a nearest-centroid or oth
 "representative" selection strategy may replace this later.
 
 Usage:
-    python scratch/plot_cluster_frames.py \
+    python scripts/plot_cluster_frames.py \
         --model-name iter-1.1_msps-vae_d16 \
         --cluster-run kmeans_k16
 """

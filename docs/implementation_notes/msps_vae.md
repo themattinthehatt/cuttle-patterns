@@ -263,7 +263,7 @@ directory structure.
 **Date:** 2026-09-18
 
 **Motivation:** inspecting representative frames per cluster for `iter-1.1_msps-vae_d16`'s
-`kmeans_k16` (`../../scratch/plot_cluster_frames.py`, via the dashboard) surfaced a second
+`kmeans_k16` (`../../scripts/plot_cluster_frames.py`, via the dashboard) surfaced a second
 confound in `z_u`, distinct from the identity leakage the `z_b` split above already
 addresses: several clusters that are visually the same coarse pattern (e.g. "dark
 aggression" — dark base, white streaks/spots) split apart by *where* the inscribed
