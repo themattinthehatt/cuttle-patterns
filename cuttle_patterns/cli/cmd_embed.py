@@ -32,6 +32,13 @@ from cuttle_patterns.embedders.vgg import BACKBONE_NAME as VGG_BACKBONE_NAME
 from cuttle_patterns.embedders.vgg import LAYER_TO_INDEX as VGG_LAYER_CHOICES
 
 DEFAULT_RESOLUTION = 224
+# hard override, not a default: shallow VGG layers (relu1_1/relu2_1) run at little to no
+# downsampling, so their patch grid can be ~200k positions per frame at DEFAULT_VGG_RESOLUTION
+# (e.g. 448x448 for relu1_1's 1x stride) -- vs. DINOv3's fixed ~784 at the same resolution --
+# and the Gram readout's float64 (batch_size, N, C) tensor blows past GPU memory well before
+# --batch-size's default (128) for these layers; --batch-size is ignored for vgg19 entirely
+# rather than left as a footgun users have to rediscover via a CUDA OOM
+VGG_BATCH_SIZE = 32
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -96,7 +103,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         '--batch-size', '-b',
         type=int,
         default=DEFAULT_BATCH_SIZE,
-        help='number of frames per forward pass',
+        help=f'number of frames per forward pass; ignored for --backbone {VGG_BACKBONE_NAME}, '
+        f'which always uses {VGG_BATCH_SIZE} (its shallow layers can have far larger patch '
+        'grids than DINOv3 at the same resolution, risking a CUDA OOM at higher batch sizes)',
     )
     parser.add_argument(
         '--device',
@@ -155,6 +164,7 @@ def cmd_embed(args: argparse.Namespace) -> None:
     resolution = args.resolution if args.resolution is not None else (
         DEFAULT_VGG_RESOLUTION if args.backbone == VGG_BACKBONE_NAME else DEFAULT_RESOLUTION
     )
+    batch_size = VGG_BATCH_SIZE if args.backbone == VGG_BACKBONE_NAME else args.batch_size
 
     try:
         frame_paths = find_frame_paths(input_dir)
@@ -164,6 +174,8 @@ def cmd_embed(args: argparse.Namespace) -> None:
     print(f'found {len(frame_paths)} frames under {input_dir}')
 
     print(f'device: {device}')
+    if args.backbone == VGG_BACKBONE_NAME and args.batch_size != VGG_BATCH_SIZE:
+        print(f'batch size: {batch_size} (--batch-size {args.batch_size} ignored for vgg19)')
     readout_kwargs = (
         {'k': args.gram_k, 'weights': args.gram_weights}
         if args.readout == GRAM_READOUT_NAME else None
@@ -185,10 +197,10 @@ def cmd_embed(args: argparse.Namespace) -> None:
     if embedder.requires_fit:
         fit_frame_paths = sample_fit_frame_paths(frame_paths)
         print(f'fitting {embedder.readout.name} on {len(fit_frame_paths)} fit-set frames')
-        fit_readout(embedder, fit_frame_paths, batch_size=args.batch_size)
+        fit_readout(embedder, fit_frame_paths, batch_size=batch_size)
         print(f'fit complete: {embedder.readout.metadata()}')
 
-    embeddings, meta = run_embed(embedder, frame_paths, batch_size=args.batch_size)
+    embeddings, meta = run_embed(embedder, frame_paths, batch_size=batch_size)
 
     model_dir = results_dir / paths.BEAST_MODELS_RELPATH / model_name
     latents_dir = write_embedder_output(embeddings, meta, embedder, model_dir, predictions_name)

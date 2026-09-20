@@ -5,10 +5,11 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
 import pytest
 import yaml
 
-from cuttle_patterns.cli.cmd_embed import cmd_embed
+from cuttle_patterns.cli.cmd_embed import VGG_BATCH_SIZE, cmd_embed
 from cuttle_patterns.embedders.base import Embedder
 
 
@@ -249,6 +250,78 @@ class TestCmdEmbed:
         # Assert -- --resolution wasn't passed, so it defaults to DEFAULT_VGG_RESOLUTION
         # (448) for backbone vgg19, not DEFAULT_RESOLUTION (224)
         assert captured == {'resolution': 448, 'vgg_layer': 'relu4_1'}
+
+    def test_cmd_embed_forces_batch_size_for_vgg19(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        monkeypatch.setattr(
+            'cuttle_patterns.cli.cmd_embed.build_embedder',
+            lambda *args, **kwargs: _FakeGramEmbedder(),
+        )
+        captured = {}
+
+        def _fake_fit_readout(embedder, fit_frame_paths, batch_size):
+            captured['fit_batch_size'] = batch_size
+
+        def _fake_run_embed(embedder, frame_paths, batch_size):
+            captured['run_batch_size'] = batch_size
+            embeddings = embedder.embed(np.zeros((len(frame_paths), 4, 4, 3), dtype=np.uint8))
+            meta = pd.DataFrame({
+                'video_name': ['v'] * len(frame_paths),
+                'day': [1] * len(frame_paths),
+                'tank': [1] * len(frame_paths),
+                'role': ['Resident'] * len(frame_paths),
+                'frame_number': list(range(len(frame_paths))),
+            })
+            return embeddings, meta
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.fit_readout', _fake_fit_readout)
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.run_embed', _fake_run_embed)
+        args = _make_args(
+            results_dir=results_dir, backbone='vgg19', readout='gram', batch_size=128,
+        )
+
+        # Act
+        cmd_embed(args)
+
+        # Assert -- --batch-size 128 was passed but ignored for vgg19
+        assert captured == {'fit_batch_size': VGG_BATCH_SIZE, 'run_batch_size': VGG_BATCH_SIZE}
+
+    def test_cmd_embed_respects_batch_size_for_dinov3(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        monkeypatch.setattr(
+            'cuttle_patterns.cli.cmd_embed.build_embedder',
+            lambda *args, **kwargs: _FakeEmbedder(),
+        )
+        captured = {}
+
+        def _fake_run_embed(embedder, frame_paths, batch_size):
+            captured['run_batch_size'] = batch_size
+            embeddings = embedder.embed(np.zeros((len(frame_paths), 4, 4, 3), dtype=np.uint8))
+            meta = pd.DataFrame({
+                'video_name': ['v'] * len(frame_paths),
+                'day': [1] * len(frame_paths),
+                'tank': [1] * len(frame_paths),
+                'role': ['Resident'] * len(frame_paths),
+                'frame_number': list(range(len(frame_paths))),
+            })
+            return embeddings, meta
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.run_embed', _fake_run_embed)
+        args = _make_args(results_dir=results_dir, batch_size=7)
+
+        # Act
+        cmd_embed(args)
+
+        # Assert -- unlike vgg19, DINOv3 keeps the user's --batch-size unchanged
+        assert captured == {'run_batch_size': 7}
 
     def test_cmd_embed_does_not_fit_stateless_readout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
