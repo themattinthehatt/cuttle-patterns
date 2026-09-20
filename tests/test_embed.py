@@ -152,6 +152,65 @@ class TestBuildEmbedder:
         # Assert
         assert captured == {'dim': 8, 'kwargs': {'k': 4, 'weights': 'uniform'}}
 
+    def test_build_embedder_unknown_backbone_raises_before_loading_readout(self):
+        # Act & Assert
+        with pytest.raises(ValueError, match='unknown backbone'):
+            build_embedder('not-a-real-backbone', 224, 'cls', device=torch.device('cpu'))
+
+    def test_build_embedder_vgg19_with_cls_readout_raises_before_loading(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        def _fail_if_called(*args, **kwargs):
+            raise AssertionError('VGGBackbone should not be constructed')
+
+        monkeypatch.setattr('cuttle_patterns.embed.VGGBackbone', _fail_if_called)
+
+        # Act & Assert
+        with pytest.raises(ValueError, match='no CLS token'):
+            build_embedder('vgg19', 448, 'cls', device=torch.device('cpu'))
+
+    def test_build_embedder_dispatches_to_vgg_backbone(self, monkeypatch: pytest.MonkeyPatch):
+        # Arrange
+        captured = {}
+
+        class _FakeVGGBackboneClass:
+            embed_dim = 8
+
+            def __init__(self, layer, resolution, device):
+                captured['layer'] = layer
+                captured['resolution'] = resolution
+
+        monkeypatch.setattr('cuttle_patterns.embed.VGGBackbone', _FakeVGGBackboneClass)
+
+        # Act
+        build_embedder(
+            'vgg19', 448, 'meanpatch_uniform', device=torch.device('cpu'), vgg_layer='relu4_1',
+        )
+
+        # Assert
+        assert captured == {'layer': 'relu4_1', 'resolution': 448}
+
+    def test_build_embedder_vgg19_defaults_layer_when_none_given(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        captured = {}
+
+        class _FakeVGGBackboneClass:
+            embed_dim = 8
+
+            def __init__(self, layer, resolution, device):
+                captured['layer'] = layer
+
+        monkeypatch.setattr('cuttle_patterns.embed.VGGBackbone', _FakeVGGBackboneClass)
+
+        # Act
+        build_embedder('vgg19', 448, 'meanpatch_uniform', device=torch.device('cpu'))
+
+        # Assert
+        assert captured['layer'] == 'relu3_1'
+
 
 class TestParseFramePath:
     """Test the function _parse_frame_path."""

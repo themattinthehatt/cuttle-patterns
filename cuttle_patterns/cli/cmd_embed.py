@@ -13,6 +13,8 @@ from cuttle_patterns.embed import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_GRAM_K,
     DEFAULT_GRAM_WEIGHTS,
+    DEFAULT_VGG_LAYER,
+    DEFAULT_VGG_RESOLUTION,
     build_embedder,
     find_frame_paths,
     fit_readout,
@@ -26,6 +28,8 @@ from cuttle_patterns.embedders.readouts import (
     GRAM_WEIGHTS_CHOICES,
     READOUTS_BY_NAME,
 )
+from cuttle_patterns.embedders.vgg import BACKBONE_NAME as VGG_BACKBONE_NAME
+from cuttle_patterns.embedders.vgg import LAYER_TO_INDEX as VGG_LAYER_CHOICES
 
 DEFAULT_RESOLUTION = 224
 
@@ -38,7 +42,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     """
     parser = subparsers.add_parser(
         'embed',
-        help='run a frozen pretrained embedder (e.g. DINOv3) over exported frames',
+        help='run a frozen pretrained embedder (DINOv3 or VGG-19) over exported frames',
         formatter_class=DefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -49,15 +53,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         '--backbone',
-        choices=list(ARCH_TO_HF_ID),
+        choices=[*ARCH_TO_HF_ID, VGG_BACKBONE_NAME],
         required=True,
-        help='DINOv3 architecture to embed with',
+        help='DINOv3 architecture, or vgg19, to embed with',
     )
     parser.add_argument(
         '--resolution',
         type=int,
-        default=DEFAULT_RESOLUTION,
-        help='square input side length, in pixels; must be a multiple of 16',
+        default=None,
+        help='square input side length, in pixels; must be a multiple of 16 for a '
+        f'DINOv3 backbone, or of --vgg-layer\'s downsampling stride for {VGG_BACKBONE_NAME}; '
+        f'defaults to {DEFAULT_RESOLUTION} for DINOv3, {DEFAULT_VGG_RESOLUTION} for '
+        f'{VGG_BACKBONE_NAME}',
     )
     parser.add_argument(
         '--readout',
@@ -68,8 +75,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         '--model-name',
         default=None,
-        help='defaults to {backbone}_{resolution}_{readout name}, e.g. '
-        'dinov3_vitb16_224_cls or dinov3_vitb16_448_gram_k64_taper; written to '
+        help='defaults to {backbone key}_{readout name}, e.g. dinov3_vitb16_224_cls or '
+        'vgg19_3_448_gram_k64_taper; written to '
         f'results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
     )
     parser.add_argument(
@@ -110,6 +117,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help=f'patch spatial weighting for --readout {GRAM_READOUT_NAME}; ignored for '
         'other readouts',
     )
+    parser.add_argument(
+        '--vgg-layer',
+        choices=list(VGG_LAYER_CHOICES),
+        default=DEFAULT_VGG_LAYER,
+        help=f'VGG-19 layer for --backbone {VGG_BACKBONE_NAME}; ignored otherwise',
+    )
     parser.set_defaults(handler=cmd_embed)
 
 
@@ -139,6 +152,9 @@ def cmd_embed(args: argparse.Namespace) -> None:
     predictions_name = (
         args.predictions_name if args.predictions_name is not None else input_dir.stem
     )
+    resolution = args.resolution if args.resolution is not None else (
+        DEFAULT_VGG_RESOLUTION if args.backbone == VGG_BACKBONE_NAME else DEFAULT_RESOLUTION
+    )
 
     try:
         frame_paths = find_frame_paths(input_dir)
@@ -154,18 +170,17 @@ def cmd_embed(args: argparse.Namespace) -> None:
     )
     try:
         embedder = build_embedder(
-            args.backbone, args.resolution, args.readout, device, readout_kwargs=readout_kwargs,
+            args.backbone, resolution, args.readout, device,
+            vgg_layer=args.vgg_layer, readout_kwargs=readout_kwargs,
         )
     except ValueError as e:
         print(f'Error: {e}')
         sys.exit(1)
 
-    # embedder.readout.name (not args.readout) since a parametrized readout like gram
-    # encodes its hyperparameters into its name (e.g. gram_k64_taper), not just its family
-    model_name = (
-        args.model_name if args.model_name is not None
-        else f'dinov3_{args.backbone}_{args.resolution}_{embedder.readout.name}'
-    )
+    # embedder.id (backbone.key + readout.name), not raw args, since a parametrized
+    # readout like gram encodes its hyperparameters into its name (e.g. gram_k64_taper),
+    # not just its family, and backbone.key already encodes arch/layer/resolution
+    model_name = args.model_name if args.model_name is not None else embedder.id
 
     if embedder.requires_fit:
         fit_frame_paths = sample_fit_frame_paths(frame_paths)

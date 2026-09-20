@@ -94,19 +94,29 @@ inspection — nothing in `cuttle_patterns` reads it back.
 ## CLI: `cuttle embed`
 
 ```bash
-cuttle embed --backbone dinov3_vitb16 --resolution 224 --readout cls
+cuttle embed --backbone vitb16 --resolution 224 --readout cls
 # writes to results_dir/beast_models/dinov3_vitb16_224_cls/ by default;
 # pass --model-name to override
+
+cuttle embed --backbone vgg19 --vgg-layer relu3_1 --readout gram
+# writes to results_dir/beast_models/vgg19_3_448_gram_k64_taper/ by default
 ```
 
-- `--backbone`/`--resolution`/`--readout` select the embedder (`dinov3_vits16`/
-  `dinov3_vitb16`/`dinov3_vitl16` × `224`/`448`/any multiple of 16 ×
-  `cls`/`meanpatch_uniform`/`meanpatch_taper`/`gram`). Together with the readout's own
-  hyperparameters, these determine `embed_dim`.
+- `--backbone`/`--resolution`/`--readout` select the embedder: `vits16`/`vitb16`/
+  `vitl16` (DINOv3, `--resolution` any multiple of 16, default 224) or `vgg19` (see
+  "VGG-19 backbone" below; `--resolution` a multiple of `--vgg-layer`'s downsampling
+  factor, default 448) × `cls`/`meanpatch_uniform`/`meanpatch_taper`/`gram` (`cls` is
+  DINOv3-only — VGG has no CLS token). Together with the readout's own hyperparameters,
+  these determine `embed_dim`.
 - `--gram-k`/`--gram-weights {uniform,taper}` configure the `gram` readout (default
   `64`/`taper`; ignored for other readouts) — see "Gram readout" below.
-- `--model-name` defaults to `{backbone}_{resolution}_{readout name}` (e.g.
-  `dinov3_vitb16_224_cls`, `dinov3_vitb16_224_gram_k64_taper`), overridable.
+- `--vgg-layer {relu1_1,relu2_1,relu3_1,relu4_1,relu5_1}` selects which VGG-19 layer to
+  read from (default `relu3_1`; ignored for `--backbone` other than `vgg19`).
+- `--model-name` defaults to `{backbone key}_{readout name}`, where `backbone key`
+  already encodes arch/layer/resolution (e.g. `dinov3_vitb16_224_cls`,
+  `vgg19_3_448_gram_k64_taper` — VGG's layer name is aliased to a short digit code in
+  the key, `relu3_1` → `3`, so the default name stays readable; `metadata()`'s
+  `vgg_layer` still records the full name for provenance), overridable.
 - `--input-dir` defaults to `results_dir/beast_frames` — every frame under it (anchors
   and their ±1 context neighbors alike), matching `cuttle predict`'s own default.
   `--predictions-name` defaults to `input_dir.stem`.
@@ -346,18 +356,56 @@ def gram_readout_forward(patches, grid_hw, P, weights):
     return sym_to_vec(psd_sqrt(G)).float()          # (B, k(k+1)/2)
 ```
 
-## Future: VGG-19 Gram (not yet implemented)
+## VGG-19 backbone
 
-The readout math above carries over unchanged; what differs is the backbone. VGG-19
-returns multiple conv feature maps (Gatys layers `conv1_1` through `conv5_1`: 64, 128,
-256, 512, 512 channels) rather than tokens. The `TokenOutput` abstraction would
-generalize to a list of per-layer `(B, C, H, W)` maps. Layers with ≤128 channels need no
-projection; 256- and 512-channel layers get their own within-frame projection. Spatial
-weights are evaluated analytically at each layer's cell centers. Each layer is a
-separate block with its own normalization scalar so higher-channel layers don't
-dominate. VGG is fully convolutional, so higher-resolution crops can be fed without
-resizing to 224, provided the resize policy stays fixed so pattern scale remains
-normalized to body size.
+The main motivation for a second backbone: final-layer ViT patch tokens have passed
+through many layers of global attention, so a Gram over them is a second-order summary
+of *contextualized* features, not a pure Gatys-style texture statistic the way VGG conv
+activations are (see "Final-layer ViT tokens aren't local texture features" above). If
+DINOv3-Gram and VGG-Gram disagree, that difference is the first thing to investigate.
+
+`cuttle_patterns/embedders/vgg.py` wraps a pretrained `torchvision.models.vgg19`
+(`IMAGENET1K_V1` weights — no gating/token needed, unlike DINOv3), truncated at one
+named layer. The Gram readout math above carries over completely unchanged: VGG's conv
+feature map `(B, C, H, W)` is flattened to a `TokenOutput` with `patches` shape
+`(B, H*W, C)` and `grid_hw = (H, W)`, the same shape a ViT backbone produces. `cls` is
+`None` — VGG has no CLS-token equivalent, so `build_embedder` rejects
+`--backbone vgg19 --readout cls` up front, before loading any weights.
+
+`--vgg-layer` is restricted to the canonical 5 Gatys et al. texture/style layers (*A
+Neural Algorithm of Artistic Style*, CVPR 2016: one ReLU per block, equally weighted) —
+this is the most-cited convention for Gram-matrix texture representations, and it keeps
+receptive field growing monotonically with depth:
+
+| Layer | Key code | `vgg19().features` index | Channels `C` | Downsampling |
+|---|---|---|---|---|
+| `relu1_1` | `1` | 1 | 64 | 1× (no pooling yet) |
+| `relu2_1` | `2` | 6 | 128 | 2× |
+| `relu3_1` | `3` | 11 | 256 | 4× |
+| `relu4_1` | `4` | 20 | 512 | 8× |
+| `relu5_1` | `5` | 29 | 512 | 16× |
+
+The "Key code" column is what actually appears in `backbone.key`/the default
+`model_name` (`LAYER_TO_CODE` in `vgg.py`) — kept short so
+`vgg19_3_448_gram_k64_taper` stays readable; `metadata()`'s `vgg_layer` field still
+records the full layer name (`relu3_1`) for provenance. Multi-layer fusion, if ever
+built, would concatenate these codes in block order (e.g. `vgg19_345_...` for
+`relu3_1`+`relu4_1`+`relu5_1`).
+
+`--resolution` must be a multiple of the chosen layer's downsampling factor, so its
+output grid divides evenly (analogous to DINOv3's "multiple of the patch size"
+constraint). Preprocessing reuses DINOv3's resize/ImageNet-normalization pipeline
+unchanged — torchvision's pretrained weights expect the same ImageNet statistics. VGG is
+fully convolutional and cheap per-pixel relative to a ViT, so `cuttle embed` defaults
+`--resolution` to 448 for `vgg19` (versus 224 for DINOv3) — a less noisy Gram covariance
+estimate per this doc's own resolution caveat above, still affordable at VGG's cost per
+pixel.
+
+**Not implemented: multi-layer fusion.** Only one layer per `cuttle embed` run is
+supported — `--vgg-layer` takes a single value, and each layer's channel count differs
+(64/128/256/512/512), so comparing single-layer results (early vs. late) is the natural
+first pass before deciding whether Gatys-style fusion (concatenating multiple layers'
+independently-fit, independently-normalized Gram vectors) is worth the added complexity.
 
 The main motivation: final-layer ViT tokens have passed through many layers of global
 attention, so a Gram over them is a second-order summary of *contextualized* features,

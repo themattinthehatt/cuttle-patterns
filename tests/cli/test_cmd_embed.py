@@ -13,7 +13,10 @@ from cuttle_patterns.embedders.base import Embedder
 
 
 class _FakeBackbone:
-    key = 'fake_backbone'
+    # matches _make_args' default --backbone/--resolution so tests asserting on
+    # cmd_embed's default model-name (embedder.id = backbone.key + readout.name) see a
+    # realistic backbone.key without loading a real DINOv3 model
+    key = 'dinov3_vitb16_224'
 
     def preprocess(self, frames):
         return frames
@@ -98,6 +101,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         device='cpu',
         gram_k=64,
         gram_weights='taper',
+        vgg_layer='relu3_1',
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -220,6 +224,31 @@ class TestCmdEmbed:
 
         # Assert
         assert captured['readout_kwargs'] == {'k': 32, 'weights': 'uniform'}
+
+    def test_cmd_embed_passes_vgg_layer_and_default_resolution_to_build_embedder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        captured = {}
+
+        def _fake_build_embedder(backbone_arch, resolution, readout_name, device, **kwargs):
+            captured['resolution'] = resolution
+            captured['vgg_layer'] = kwargs.get('vgg_layer')
+            return _FakeEmbedder()
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.build_embedder', _fake_build_embedder)
+        args = _make_args(
+            results_dir=results_dir, backbone='vgg19', resolution=None, vgg_layer='relu4_1',
+        )
+
+        # Act
+        cmd_embed(args)
+
+        # Assert -- --resolution wasn't passed, so it defaults to DEFAULT_VGG_RESOLUTION
+        # (448) for backbone vgg19, not DEFAULT_RESOLUTION (224)
+        assert captured == {'resolution': 448, 'vgg_layer': 'relu4_1'}
 
     def test_cmd_embed_does_not_fit_stateless_readout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
