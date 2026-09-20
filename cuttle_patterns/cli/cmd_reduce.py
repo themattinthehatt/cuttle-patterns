@@ -129,3 +129,8 @@ def cmd_reduce(args: argparse.Namespace) -> None:
 
         df.to_parquet(output_path, index=False)
         print(f'Wrote {len(df)} rows to {output_path}')
+
+    print(
+        f'next: cuttle cluster --model-name {args.model_name} --n-clusters K (and/or '
+        'cuttle serve to visualize)'
+    )

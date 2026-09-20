@@ -178,3 +178,8 @@ def cmd_inscribe(args: argparse.Namespace) -> None:
         )
         print(f'  wrote {video_out_path}')
         print(f'  wrote {csv_out_path}')
+
+    print(
+        f'next: cuttle overlay (optional QC) or cuttle extract --pose-dir {pose_dir} '
+        f'--input-dir {output_dir}'
+    )

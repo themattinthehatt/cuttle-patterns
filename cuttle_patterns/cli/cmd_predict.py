@@ -115,3 +115,9 @@ def cmd_predict(args: argparse.Namespace) -> None:
     result = subprocess.run(argv)
     if result.returncode != 0:
         sys.exit(result.returncode)
+
+    if args.save_latents:
+        print(
+            f'next: cuttle reduce --model-name {args.model_name} (and optionally '
+            f'cuttle cluster --model-name {args.model_name} --n-clusters K)'
+        )

@@ -118,3 +118,4 @@ def cmd_cluster(args: argparse.Namespace) -> None:
 
     df.to_parquet(output_path, index=False)
     print(f'Wrote {len(df)} rows to {output_path}')
+    print('next: cuttle serve to visualize')

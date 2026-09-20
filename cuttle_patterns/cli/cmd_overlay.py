@@ -193,3 +193,5 @@ def cmd_overlay(args: argparse.Namespace) -> None:
             video_path, csv_path, overlay_path, crf=args.crf, pose_path=pose_path,
         )
         print(f'  wrote {overlay_path}')
+
+    print(f'next: review the overlays in {output_dir}, then cuttle extract once satisfied')

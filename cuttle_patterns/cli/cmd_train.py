@@ -117,3 +117,4 @@ def cmd_train(args: argparse.Namespace) -> None:
         sys.exit(result.returncode)
 
     print(f'Model saved to {model_dir}')
+    print(f'next: cuttle predict --model-name {args.model_name} --save-latents')
