@@ -7,7 +7,7 @@ from pathlib import Path
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
-from cuttle_patterns.embeddings import LATENT_SPACE_ALL, load_latents, split_latent_spaces
+from cuttle_patterns.latents import LATENT_SPACE_ALL, load_latents, split_latent_spaces
 from cuttle_patterns.reduce import (
     DEFAULT_METRIC,
     DEFAULT_MIN_DIST,

@@ -12,7 +12,7 @@ import pandas as pd
 
 from cuttle_patterns.paths import CLASSIFICATIONS_RELPATH, EXTRACT_MANIFEST_RELPATH
 
-# matches cuttle_patterns.embeddings.VIDEO_NAME_PATTERN's naming convention
+# matches cuttle_patterns.latents.VIDEO_NAME_PATTERN's naming convention
 VIDEO_NAME_SUFFIX = '_Crop'
 
 

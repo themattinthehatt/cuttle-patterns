@@ -36,7 +36,7 @@ from scipy.ndimage import map_coordinates
 
 from cuttle_patterns import paths
 from cuttle_patterns.config import load_config
-from cuttle_patterns.embeddings import FRAME_FILENAME_PATTERN
+from cuttle_patterns.latents import FRAME_FILENAME_PATTERN
 
 DEFAULT_SIDE = 128
 DEFAULT_SIGMA_GAUSSIAN = 0.4

@@ -2,7 +2,7 @@
 
 Every embedder this v1 harness scores was already trained through the existing BEAST
 pipeline (Phase 4) — nothing here re-runs inference. It reuses
-`cuttle_patterns.embeddings.load_latents`/`split_latent_spaces` to read the per-frame
+`cuttle_patterns.latents.load_latents`/`split_latent_spaces` to read the per-frame
 `.npy` latents `cuttle predict --save-latents` wrote, then restricts/reorders them to
 match the eval manifest's frame set. A second, pretrained-backbone tier ("Tier B") is
 deferred — see `docs/eval_plan.md`.
@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from cuttle_patterns.embeddings import load_latents, split_latent_spaces
+from cuttle_patterns.latents import load_latents, split_latent_spaces
 
 DEFAULT_PREDICTIONS_NAME = 'beast_frames'
 
@@ -26,7 +26,7 @@ class EmbedderSpec:
     Attributes:
         id: short name for the scoreboard, e.g. `msps_vae_z_u`.
         model_dir: `results_dir/beast_models/{model_name}`.
-        subspace: one of `cuttle_patterns.embeddings`'s subspace keys (`all`,
+        subspace: one of `cuttle_patterns.latents`'s subspace keys (`all`,
             `unsupervised`, `background`); `all` for every non-`msps_vae` model.
         predictions_name: `cuttle predict`'s `--input-dir` stem; selects which
             `image_predictions/{predictions_name}` directory to read latents from.

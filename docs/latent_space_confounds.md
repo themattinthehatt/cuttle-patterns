@@ -7,7 +7,7 @@ lower-level signal. Written as a standalone status doc rather than a `DECISIONS.
 entry, since the underlying problem (see "The recurring pattern" below) isn't resolved
 yet — this is where things stand, not a closed decision. Full technical detail on the
 MSPS-VAE architecture/sampler/config lives in
-[msps_vae_implementation.md](msps_vae_implementation.md); this doc is the higher-level
+[msps_vae_implementation.md](implementation_notes/msps_vae.md); this doc is the higher-level
 narrative across all three stages plus open thinking on where to go if the current fix
 doesn't hold up.
 
@@ -31,7 +31,7 @@ labels (Whiteway et al. 2021, PLOS Comp Bio). Two latent subspaces, produced as 
 non-trainable slices of a random orthogonal matrix (orthogonal by construction, no soft
 penalty needed): `z_u` (unsupervised/pattern, what clustering should read) and `z_b`
 (background/identity, shaped by a triplet loss keyed on `video_name`). Full rationale in
-[msps_vae_implementation.md](msps_vae_implementation.md).
+[msps_vae_implementation.md](implementation_notes/msps_vae.md).
 
 This fixed the *identity* confound. It did not fix a second one, found once real
 per-cluster examples were inspected (`scratch/plot_cluster_frames.py`): several clusters
@@ -61,7 +61,7 @@ Two fixes were considered and rejected before landing on the one actually built:
 Chosen fix: down-weight reconstruction MSE spatially with a fixed, non-trainable
 raised-cosine radial taper (full weight at center, zero at/before the square input's
 edges and corners), rather than mask or crop the input pixels — see
-[msps_vae_implementation.md](msps_vae_implementation.md) for the exact profile,
+[msps_vae_implementation.md](implementation_notes/msps_vae.md) for the exact profile,
 mean-1-renormalization spec, and calibration against the existing
 `triplet_weight`/`triplet_margin`. Loss-weighting was picked over literal input masking
 specifically because masking would need to be applied identically, at extra pipeline
@@ -147,7 +147,7 @@ contrastive scheme genuinely don't resolve the pattern-vs-lower-level-feature co
 ## Evaluating the masked MSPS-VAE run
 
 Once training completes, the existing evaluation plan in
-[msps_vae_implementation.md](msps_vae_implementation.md) (leakage probe, session-swap
+[msps_vae_implementation.md](implementation_notes/msps_vae.md) (leakage probe, session-swap
 reconstruction test, within-session sub-clustering check, plus the qualitative
 `scratch/plot_cluster_frames.py` inspection that found both confounds so far) applies
 unchanged — no new evaluation machinery needed, just a fresh model to point it at.

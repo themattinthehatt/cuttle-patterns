@@ -24,7 +24,7 @@ caller is expected to pick something that reads as non-BEAST at a glance, e.g.
 `iter-1.1_classifier_d512` (existing BEAST models are named `iter-1.1_resnet-18_d16`,
 `iter-1.1_msps-vae_d16`).
 
-**Why:** `cuttle_patterns.embeddings.load_latents` (used by both `cuttle reduce` and
+**Why:** `cuttle_patterns.latents.load_latents` (used by both `cuttle reduce` and
 `cuttle cluster`) only cares about the on-disk `.npy` layout under a model directory, and
 `embeddings.split_latent_spaces` only cares about one `config.yaml` key
 (`model.model_class`, to special-case `msps_vae`); neither actually checks that the
@@ -115,7 +115,7 @@ latent bottleneck — `z_u` unsupervised/pattern, `z_b` background/identity shap
 triplet loss). Implemented on a new `msps-vae` branch in the `beast` repo
 (`model_class: msps_vae`), with a mirrored config here at `configs/beast_msps_vae.yaml`.
 Full design rationale, architecture, sampler design, hyperparameter calibration, and open
-questions live in [msps_vae_implementation.md](msps_vae_implementation.md) — this entry
+questions live in [msps_vae_implementation.md](implementation_notes/msps_vae.md) — this entry
 is a pointer, not a duplicate.
 
 **Why:** UMAP projections of both prior backbones clustered primarily by `video_name`

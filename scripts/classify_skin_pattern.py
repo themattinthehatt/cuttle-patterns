@@ -55,7 +55,7 @@ from tqdm import tqdm
 
 from cuttle_patterns import paths
 from cuttle_patterns.config import load_config
-from cuttle_patterns.embeddings import FRAME_FILENAME_PATTERN
+from cuttle_patterns.latents import FRAME_FILENAME_PATTERN
 
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_NUM_WORKERS = 2
@@ -194,7 +194,7 @@ def run_classifier(
         - `embedding_meta`: columns `video_name`, `frame_number`, row-aligned with
           `embeddings`.
         All three are sorted by `(video_name, frame_number)`, matching
-        `cuttle_patterns.embeddings.load_latents`'s row order.
+        `cuttle_patterns.latents.load_latents`'s row order.
     """
     loader = DataLoader(
         FrameDataset(frame_paths), batch_size=batch_size, shuffle=False, num_workers=num_workers,
@@ -250,7 +250,7 @@ def write_latents(embeddings: np.ndarray, embedding_meta: pd.DataFrame, latents_
     """Write one `.npy` file per frame, matching `beast predict --save-latents`'s layout.
 
     This is what lets `cuttle reduce`/`cuttle cluster` run against this classifier's
-    embeddings unmodified, via `cuttle_patterns.embeddings.load_latents` -- the same
+    embeddings unmodified, via `cuttle_patterns.latents.load_latents` -- the same
     function that reads a real BEAST model's saved latents.
 
     Args:
@@ -270,7 +270,7 @@ def write_latents(embeddings: np.ndarray, embedding_meta: pd.DataFrame, latents_
 def write_model_config(model_dir: Path) -> None:
     """Write a minimal config.yaml so this directory duck-types as a BEAST model dir.
 
-    `cuttle_patterns.embeddings.split_latent_spaces` (used by `cuttle reduce`/`cuttle
+    `cuttle_patterns.latents.split_latent_spaces` (used by `cuttle reduce`/`cuttle
     cluster`) reads `model.model_class` from a real BEAST model's config.yaml to decide
     whether to split the latent space -- only for `msps_vae`. Recording `MODEL_CLASS`
     here takes that same single-latent-space path, so this directory needs no other

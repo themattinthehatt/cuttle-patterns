@@ -15,7 +15,7 @@ def make_latents_dir() -> Callable[[Path, dict[str, dict[int, np.ndarray]]], Non
     Returns:
         a callable `(model_dir, video_frames) -> None`, where `video_frames` maps
         `video_name -> {frame_number: vector}`, matching
-        `cuttle_patterns.embeddings.load_latents`'s expected on-disk layout.
+        `cuttle_patterns.latents.load_latents`'s expected on-disk layout.
     """
 
     def _make_latents_dir(model_dir: Path, video_frames: dict[str, dict[int, np.ndarray]]) -> None:
@@ -36,7 +36,7 @@ def write_model_config() -> Callable[..., None]:
     Returns:
         a callable `(model_dir, model_class, **model_params) -> None`, matching the
         subset of `beast train`'s own `config.yaml` that
-        `cuttle_patterns.embeddings.split_latent_spaces` reads.
+        `cuttle_patterns.latents.split_latent_spaces` reads.
     """
 
     def _write_model_config(model_dir: Path, model_class: str, **model_params) -> None:

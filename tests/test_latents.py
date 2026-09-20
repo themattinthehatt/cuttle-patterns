@@ -1,11 +1,11 @@
-"""Tests for cuttle_patterns.embeddings."""
+"""Tests for cuttle_patterns.latents."""
 
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from cuttle_patterns.embeddings import (
+from cuttle_patterns.latents import (
     load_latents,
     parse_video_name,
     select_cluster_latents,

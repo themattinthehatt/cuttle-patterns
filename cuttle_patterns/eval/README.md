@@ -4,7 +4,7 @@ Scores any per-frame embedding on two questions: how well does it organize by sk
 pattern, and how much does it organize by video/individual identity instead? Replaces
 eyeballing cluster grids after each training run with a quantitative scoreboard. Full
 design rationale (why these metrics, what's deliberately out of scope, what a v2 would
-add) lives in [`docs/eval_plan.md`](../../docs/eval_plan.md) — this file is just the
+add) lives in [`../../docs/implementation_notes/eval_plan.md`](../../docs/implementation_notes/eval_plan.md) — this file is just the
 how-to-run.
 
 **Not wired into the `cuttle` CLI.** Everything here is called directly, either from
@@ -29,7 +29,7 @@ by the existing `cuttle train`/`cuttle predict` pipeline:
 **Deliberately not built yet:** scoring a pretrained backbone like DINOv2 (would need
 new extraction code, not just loading existing latents), and the qualitative outputs
 (cluster grids, fixed-query neighbor grids). Both are real v2 work, not forgotten —
-see `docs/eval_plan.md`'s "Deferred to v2" / "Out of scope for now" notes.
+see `../../docs/implementation_notes/eval_plan.md`'s "Deferred to v2" / "Out of scope for now" notes.
 
 ## Metrics
 
@@ -43,7 +43,7 @@ see `docs/eval_plan.md`'s "Deferred to v2" / "Out of scope for now" notes.
 
 `*_mean/std` metrics are aggregated over 5 k-means seeds at k=16 (`prepare_for_clustering`
 L2-normalizes then PCA-reduces first — see `clustering.py`). None of these are meant to
-be maximized in isolation — read them together, per `docs/eval_plan.md`'s design
+be maximized in isolation — read them together, per `../../docs/implementation_notes/eval_plan.md`'s design
 principles. What each one actually is, and how to read it:
 
 **`ami_cluster_class_mean/std`** — adjusted mutual information (AMI) between the
