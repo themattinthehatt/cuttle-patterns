@@ -10,7 +10,31 @@ Sections were originally marked (verify) for details stated from memory or assum
 
 1. **Done (2026-09-20):** DINOv3 backbone, CLS readout only, `cuttle embed` wired into the CLI, writing the single-combined-array duck-typed output described in "CLI: `cuttle embed`" below. Implemented as `cuttle_patterns/embedders/{base,dinov3,readouts}.py` + `cuttle_patterns/embed.py` + `cuttle_patterns/cli/cmd_embed.py`, tested (`tests/embedders/`, `tests/test_embed.py`, `tests/cli/test_cmd_embed.py`) and smoke-tested end to end against the real `facebook/dinov3-vits16-pretrain-lvd1689m` weights on synthetic frames (correct `(N, 384)` output, valid `config.yaml`/`manifest.parquet`). The `transformers` import is deferred to inside `DINOv3Backbone.__init__` (not at module top), since eagerly importing it would otherwise add ~2s to every `cuttle` invocation via `cli/main.py`'s eager `cmd_*.py` auto-discovery, not just `cuttle embed`'s. Pausing here to commit before starting step 2.
 2. **Done (2026-09-20):** `cuttle_patterns.latents.load_latents` now dispatches on whether `embeddings.npy` exists in `latents_dir` — if so, reads it plus its row-aligned `manifest.parquet` (`_load_combined_latents`); otherwise falls back to the original per-frame-`.npy` glob, unchanged for real `beast train`/`cuttle predict` output. This was, as expected, the only change needed: `cuttle reduce`/`cuttle cluster` themselves needed zero edits, since both already go through `load_latents`/`split_latent_spaces` and never touch the filesystem layout directly. Verified against the real full-dataset `dinov3_vitb16_224_cls` run (94,361 frames × 768-d, 32 videos) — `cuttle reduce` and `cuttle cluster --n-clusters 16` both completed successfully against it.
-3. **Next:** add the `meanpatch_uniform`/`meanpatch_taper`/`gram_*` readouts from sections 2/3 below, each reachable via its own `cuttle embed --readout ...` invocation (see the "no cross-readout backbone sharing" note in section 1).
+3. **Done (2026-09-20):** `meanpatch_uniform` readout added (`MeanPatchUniformReadout` in
+   `cuttle_patterns/embedders/readouts.py`) — unweighted mean of post-norm patch tokens
+   over all N grid positions, stateless like `cls` (`fit_passes = 0`, no `partial_fit`
+   needed). Reachable via `cuttle embed --readout meanpatch_uniform` with no other CLI or
+   `embed.py` changes, since `build_embedder`/`write_embedder_output` were already
+   readout-agnostic (dispatch through `READOUTS_BY_NAME`). Tested in
+   `tests/embedders/test_readouts.py`.
+4. **Done (2026-09-20):** taper spatial weights (`patch_center_coords`/`radial_taper`/
+   `patch_weights` in the new `cuttle_patterns/embedders/spatial_weights.py`) and the
+   `meanpatch_taper` readout (`MeanPatchTaperReadout` in `readouts.py`) built.
+   `radial_taper` replicates `build_raised_cosine_weight_map` from
+   `beast/models/msps_vae/msps_vae_model.py` (msps-vae branch) exactly, evaluated at
+   patch centers instead of pixels, and is cross-checked pointwise against that real
+   function on a pixel grid in `tests/embedders/test_spatial_weights.py` (imported
+   directly — available in the `cuttle` conda env). `patch_weights` renormalizes to
+   sum 1 rather than mean 1, per section 3's "Spatial weights" note, since sum-1 is
+   what the weighted-moments math needs. Reachable via
+   `cuttle embed --readout meanpatch_taper` (default `r0 = 0.5`, matching
+   `spatial_loss_weight_r0`'s default); `MeanPatchTaperReadout.metadata()` records the
+   `taper_r0` used. Tested in `tests/embedders/test_spatial_weights.py` and
+   `tests/embedders/test_readouts.py`.
+5. **Next:** the `gram_*` readouts (section 3), which reuse `patch_weights` for their
+   own spatial weighting but additionally need the fitted channel-projection machinery
+   (`fit_passes = 2`, `partial_fit`/`finalize_pass`) that `cls`/`meanpatch_*` don't
+   require.
 
 1. Embedder protocol
 Design
