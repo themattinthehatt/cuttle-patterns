@@ -26,7 +26,10 @@ class _FakeBackbone:
 
 
 class _FakeReadout:
-    name = 'fake_readout'
+    # matches _make_args' default --readout so the default model-name test (which uses
+    # embedder.readout.name, not raw args.readout) stays consistent with 'cls'
+    name = 'cls'
+    fit_passes = 0
 
     def __call__(self, tokens):
         raise NotImplementedError
@@ -34,6 +37,9 @@ class _FakeReadout:
     @property
     def dim(self) -> int:
         return 2
+
+    def state_dict(self) -> dict:
+        return {}
 
     def metadata(self) -> dict:
         return {}
@@ -49,6 +55,36 @@ class _FakeEmbedder(Embedder):
         return np.zeros((len(frames), 2), dtype=np.float32)
 
 
+class _FakeGramReadout:
+    """Stand-in for a stateful readout, to test cmd_embed's fitting step."""
+
+    name = 'gram_k4_taper'
+    fit_passes = 1
+
+    def __call__(self, tokens):
+        raise NotImplementedError
+
+    @property
+    def dim(self) -> int:
+        return 10
+
+    def state_dict(self) -> dict:
+        return {}
+
+    def metadata(self) -> dict:
+        return {'gram_k': 4}
+
+
+class _FakeGramEmbedder(Embedder):
+    """Deterministic stand-in for a gram embedder, used to skip model loading/fitting."""
+
+    def __init__(self):
+        super().__init__(_FakeBackbone(), _FakeGramReadout())
+
+    def embed(self, frames: np.ndarray) -> np.ndarray:
+        return np.zeros((len(frames), 10), dtype=np.float32)
+
+
 def _make_args(**overrides) -> argparse.Namespace:
     defaults = dict(
         results_dir=None,
@@ -60,6 +96,8 @@ def _make_args(**overrides) -> argparse.Namespace:
         predictions_name=None,
         batch_size=2,
         device='cpu',
+        gram_k=64,
+        gram_weights='taper',
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -132,3 +170,73 @@ class TestCmdEmbed:
         # Assert
         model_dir = results_dir / 'beast_models' / 'my-custom-embedder'
         assert (model_dir / 'config.yaml').is_file()
+
+    def test_cmd_embed_fits_stateful_readout_before_embedding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=3)
+        monkeypatch.setattr(
+            'cuttle_patterns.cli.cmd_embed.build_embedder',
+            lambda *args, **kwargs: _FakeGramEmbedder(),
+        )
+        fit_calls = []
+        monkeypatch.setattr(
+            'cuttle_patterns.cli.cmd_embed.fit_readout',
+            lambda embedder, fit_frame_paths, batch_size: fit_calls.append(fit_frame_paths),
+        )
+        args = _make_args(results_dir=results_dir, readout='gram')
+
+        # Act
+        cmd_embed(args)
+
+        # Assert -- fitting ran once, before writing; default model name derives from
+        # the embedder's actual readout.name (gram_k4_taper), not raw args.readout ('gram')
+        assert len(fit_calls) == 1
+        model_dir = results_dir / 'beast_models' / 'dinov3_vitb16_224_gram_k4_taper'
+        assert (model_dir / 'config.yaml').is_file()
+
+    def test_cmd_embed_passes_gram_kwargs_to_build_embedder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        captured = {}
+
+        def _fake_build_embedder(backbone_arch, resolution, readout_name, device, **kwargs):
+            captured['readout_kwargs'] = kwargs.get('readout_kwargs')
+            return _FakeGramEmbedder()
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.build_embedder', _fake_build_embedder)
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.fit_readout', lambda *a, **k: None)
+        args = _make_args(
+            results_dir=results_dir, readout='gram', gram_k=32, gram_weights='uniform',
+        )
+
+        # Act
+        cmd_embed(args)
+
+        # Assert
+        assert captured['readout_kwargs'] == {'k': 32, 'weights': 'uniform'}
+
+    def test_cmd_embed_does_not_fit_stateless_readout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        monkeypatch.setattr(
+            'cuttle_patterns.cli.cmd_embed.build_embedder',
+            lambda *args, **kwargs: _FakeEmbedder(),
+        )
+
+        def _fail_if_called(*args, **kwargs):
+            raise AssertionError('fit_readout should not be called for a stateless readout')
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.fit_readout', _fail_if_called)
+        args = _make_args(results_dir=results_dir)
+
+        # Act & Assert -- would raise if fit_readout were called
+        cmd_embed(args)

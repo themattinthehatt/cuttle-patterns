@@ -130,7 +130,7 @@ class TestDINOv3Backbone:
         assert metadata == {
             'hf_model_id': 'facebook/dinov3-vitb16-pretrain-lvd1689m',
             'resolution': 32,
-            'embed_dim': 8,
+            'backbone_hidden_size': 8,
             'num_register_tokens': 4,
             'normalization_mean': list(IMAGENET_MEAN),
             'normalization_std': list(IMAGENET_STD),

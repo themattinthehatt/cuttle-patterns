@@ -141,11 +141,18 @@ class DINOv3Backbone(Backbone):
 
         Normalization constants are converted to plain lists (not tuples) since
         `yaml.safe_dump` -- used to write config.yaml -- can't represent a tuple.
+        Keyed `backbone_hidden_size`, not `embed_dim` -- `write_embedder_output` already
+        writes a top-level `embed_dim` for the *readout's* output dimensionality
+        (`embedder.dim`), which differs from this backbone's own channel dimension for
+        a readout like `gram` that projects down; reusing `embed_dim` here would
+        silently overwrite that (this is exactly the bug a prior version of this
+        function had, invisible only because `cls`/`meanpatch_*` happen to leave the
+        channel dimension unchanged).
         """
         return {
             'hf_model_id': self.hf_model_id,
             'resolution': self.resolution,
-            'embed_dim': self.embed_dim,
+            'backbone_hidden_size': self.embed_dim,
             'num_register_tokens': self.num_register_tokens,
             'normalization_mean': list(IMAGENET_MEAN),
             'normalization_std': list(IMAGENET_STD),

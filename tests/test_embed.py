@@ -14,10 +14,13 @@ from cuttle_patterns.embed import (
     _parse_frame_path,
     build_embedder,
     find_frame_paths,
+    fit_readout,
     run_embed,
+    sample_fit_frame_paths,
     write_embedder_output,
 )
 from cuttle_patterns.embedders.base import Embedder
+from cuttle_patterns.embedders.readouts import READOUTS_BY_NAME
 
 
 def _write_frame(path: Path, value: int) -> None:
@@ -45,6 +48,7 @@ class _FakeReadout:
     """Minimal stand-in for cuttle_patterns.embedders.base.Readout."""
 
     name = 'fake_readout'
+    fit_passes = 0
 
     def __call__(self, tokens):
         raise NotImplementedError
@@ -52,6 +56,9 @@ class _FakeReadout:
     @property
     def dim(self) -> int:
         return 1
+
+    def state_dict(self) -> dict:
+        return {}
 
     def metadata(self) -> dict:
         return {'fake_readout_meta': True}
@@ -118,6 +125,33 @@ class TestBuildEmbedder:
         with pytest.raises(ValueError, match='unknown readout'):
             build_embedder('vitb16', 224, 'not-a-real-readout', device=torch.device('cpu'))
 
+    def test_build_embedder_forwards_readout_kwargs(self, monkeypatch: pytest.MonkeyPatch):
+        # Arrange
+        captured = {}
+
+        class _FakeReadoutClass:
+            def __init__(self, dim, **kwargs):
+                captured['dim'] = dim
+                captured['kwargs'] = kwargs
+
+        class _FakeBackboneClass:
+            embed_dim = 8
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+        monkeypatch.setattr('cuttle_patterns.embed.DINOv3Backbone', _FakeBackboneClass)
+        monkeypatch.setitem(READOUTS_BY_NAME, 'fake_for_test', _FakeReadoutClass)
+
+        # Act
+        build_embedder(
+            'vitb16', 224, 'fake_for_test', device=torch.device('cpu'),
+            readout_kwargs={'k': 4, 'weights': 'uniform'},
+        )
+
+        # Assert
+        assert captured == {'dim': 8, 'kwargs': {'k': 4, 'weights': 'uniform'}}
+
 
 class TestParseFramePath:
     """Test the function _parse_frame_path."""
@@ -164,6 +198,100 @@ class TestRunEmbed:
             'Day1_Tank2_Cuttle2_Intruder_Crop',
         ]
         np.testing.assert_allclose(embeddings[:, 0], [10.0, 20.0, 30.0])
+
+
+class TestSampleFitFramePaths:
+    """Test the function sample_fit_frame_paths."""
+
+    def test_sample_fit_frame_paths_caps_evenly_per_video(self):
+        # Arrange
+        frame_paths = (
+            [Path(f'/x/video_a/img{i:08d}.png') for i in range(10)]
+            + [Path(f'/x/video_b/img{i:08d}.png') for i in range(10)]
+        )
+
+        # Act
+        result = sample_fit_frame_paths(frame_paths, fit_set_size=6, seed=0)
+
+        # Assert -- 2 videos -> cap of ceil(6 / 2) = 3 per video
+        by_video: dict[str, int] = {}
+        for p in result:
+            by_video[p.parent.name] = by_video.get(p.parent.name, 0) + 1
+        assert by_video == {'video_a': 3, 'video_b': 3}
+
+    def test_sample_fit_frame_paths_takes_all_when_fewer_than_cap(self):
+        # Arrange
+        frame_paths = [Path(f'/x/video_a/img{i:08d}.png') for i in range(2)]
+
+        # Act
+        result = sample_fit_frame_paths(frame_paths, fit_set_size=100, seed=0)
+
+        # Assert
+        assert sorted(result) == sorted(frame_paths)
+
+    def test_sample_fit_frame_paths_deterministic_for_fixed_seed(self):
+        # Arrange
+        frame_paths = [Path(f'/x/video_a/img{i:08d}.png') for i in range(20)]
+
+        # Act
+        result_a = sample_fit_frame_paths(frame_paths, fit_set_size=5, seed=7)
+        result_b = sample_fit_frame_paths(frame_paths, fit_set_size=5, seed=7)
+
+        # Assert
+        assert result_a == result_b
+
+
+class TestFitReadout:
+    """Test the function fit_readout."""
+
+    def test_fit_readout_calls_partial_fit_and_finalize_pass_per_pass(self, tmp_path: Path):
+        # Arrange
+        input_dir = tmp_path / 'beast_frames'
+        _write_frame(input_dir / 'video_a' / 'img00000001.png', 1)
+        _write_frame(input_dir / 'video_a' / 'img00000002.png', 2)
+        frame_paths = find_frame_paths(input_dir)
+        calls = []
+
+        class _FitTrackingReadout:
+            name = 'fit_tracking'
+            fit_passes = 2
+
+            def partial_fit(self, tokens, pass_idx):
+                calls.append(('partial_fit', pass_idx, len(tokens)))
+
+            def finalize_pass(self, pass_idx):
+                calls.append(('finalize_pass', pass_idx))
+
+        class _FitTrackingBackbone:
+            def preprocess(self, frames):
+                return frames
+
+            def forward(self, x):
+                return x
+
+        embedder = Embedder(_FitTrackingBackbone(), _FitTrackingReadout())
+
+        # Act
+        fit_readout(embedder, frame_paths, batch_size=1)
+
+        # Assert
+        assert calls == [
+            ('partial_fit', 0, 1), ('partial_fit', 0, 1),
+            ('finalize_pass', 0),
+            ('partial_fit', 1, 1), ('partial_fit', 1, 1),
+            ('finalize_pass', 1),
+        ]
+
+    def test_fit_readout_noop_for_stateless_readout(self, tmp_path: Path):
+        # Arrange
+        input_dir = tmp_path / 'beast_frames'
+        _write_frame(input_dir / 'video_a' / 'img00000001.png', 1)
+        frame_paths = find_frame_paths(input_dir)
+        embedder = _FakeEmbedder()
+
+        # Act & Assert -- fit_passes == 0, so partial_fit/finalize_pass are never
+        # called; _FakeReadout.__call__ would raise if the embedder tried to embed
+        fit_readout(embedder, frame_paths, batch_size=1)
 
 
 class TestGetGitCommit:
@@ -216,3 +344,26 @@ class TestWriteEmbedderOutput:
         assert latents_dir == model_dir / 'image_predictions' / 'beast_frames' / 'latents'
         np.testing.assert_array_equal(np.load(latents_dir / 'embeddings.npy'), embeddings)
         pd.testing.assert_frame_equal(pd.read_parquet(latents_dir / 'manifest.parquet'), meta)
+        assert not (model_dir / 'readout_state.pt').exists()
+
+    def test_write_embedder_output_persists_nonempty_readout_state(self, tmp_path: Path):
+        # Arrange
+        embeddings = np.array([[1.0]], dtype=np.float32)
+        meta = pd.DataFrame({
+            'video_name': ['Day1_Tank2_Cuttle1_Resident_Crop'], 'day': [1], 'tank': [2],
+            'role': ['Resident'], 'frame_number': [1],
+        })
+
+        class _StatefulFakeReadout(_FakeReadout):
+            def state_dict(self) -> dict:
+                return {'P': torch.zeros(2, 2)}
+
+        embedder = Embedder(_FakeBackbone(), _StatefulFakeReadout())
+        model_dir = tmp_path / 'beast_models' / 'fake-model'
+
+        # Act
+        write_embedder_output(embeddings, meta, embedder, model_dir, 'beast_frames')
+
+        # Assert
+        state = torch.load(model_dir / 'readout_state.pt', weights_only=False)
+        torch.testing.assert_close(state['P'], torch.zeros(2, 2))

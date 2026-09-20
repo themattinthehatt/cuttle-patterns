@@ -54,6 +54,12 @@ dev = [
     "ruff",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "gpu: requires a CUDA GPU",
+    "multigpu: requires 2+ CUDA GPUs (always paired with gpu)",
+]
+
 [tool.ruff]
 line-length = 99
 exclude = [

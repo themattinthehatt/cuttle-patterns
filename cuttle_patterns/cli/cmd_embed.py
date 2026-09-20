@@ -11,13 +11,21 @@ from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.embed import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_GRAM_K,
+    DEFAULT_GRAM_WEIGHTS,
     build_embedder,
     find_frame_paths,
+    fit_readout,
     run_embed,
+    sample_fit_frame_paths,
     write_embedder_output,
 )
 from cuttle_patterns.embedders.dinov3 import ARCH_TO_HF_ID
-from cuttle_patterns.embedders.readouts import READOUTS_BY_NAME
+from cuttle_patterns.embedders.readouts import (
+    GRAM_READOUT_NAME,
+    GRAM_WEIGHTS_CHOICES,
+    READOUTS_BY_NAME,
+)
 
 DEFAULT_RESOLUTION = 224
 
@@ -60,8 +68,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         '--model-name',
         default=None,
-        help='defaults to {backbone}_{resolution}_{readout}, e.g. dinov3_vitb16_224_cls; '
-        f'written to results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
+        help='defaults to {backbone}_{resolution}_{readout name}, e.g. '
+        'dinov3_vitb16_224_cls or dinov3_vitb16_448_gram_k64_taper; written to '
+        f'results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
     )
     parser.add_argument(
         '--input-dir',
@@ -86,6 +95,20 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         '--device',
         default=None,
         help='defaults to cuda if available, else cpu',
+    )
+    parser.add_argument(
+        '--gram-k',
+        type=int,
+        default=DEFAULT_GRAM_K,
+        help=f'channel projection dim for --readout {GRAM_READOUT_NAME} (output dim is '
+        'k * (k + 1) / 2); ignored for other readouts',
+    )
+    parser.add_argument(
+        '--gram-weights',
+        choices=list(GRAM_WEIGHTS_CHOICES),
+        default=DEFAULT_GRAM_WEIGHTS,
+        help=f'patch spatial weighting for --readout {GRAM_READOUT_NAME}; ignored for '
+        'other readouts',
     )
     parser.set_defaults(handler=cmd_embed)
 
@@ -113,10 +136,6 @@ def cmd_embed(args: argparse.Namespace) -> None:
         args.device if args.device is not None
         else 'cuda' if torch.cuda.is_available() else 'cpu'
     )
-    model_name = (
-        args.model_name if args.model_name is not None
-        else f'dinov3_{args.backbone}_{args.resolution}_{args.readout}'
-    )
     predictions_name = (
         args.predictions_name if args.predictions_name is not None else input_dir.stem
     )
@@ -129,11 +148,30 @@ def cmd_embed(args: argparse.Namespace) -> None:
     print(f'found {len(frame_paths)} frames under {input_dir}')
 
     print(f'device: {device}')
+    readout_kwargs = (
+        {'k': args.gram_k, 'weights': args.gram_weights}
+        if args.readout == GRAM_READOUT_NAME else None
+    )
     try:
-        embedder = build_embedder(args.backbone, args.resolution, args.readout, device)
+        embedder = build_embedder(
+            args.backbone, args.resolution, args.readout, device, readout_kwargs=readout_kwargs,
+        )
     except ValueError as e:
         print(f'Error: {e}')
         sys.exit(1)
+
+    # embedder.readout.name (not args.readout) since a parametrized readout like gram
+    # encodes its hyperparameters into its name (e.g. gram_k64_taper), not just its family
+    model_name = (
+        args.model_name if args.model_name is not None
+        else f'dinov3_{args.backbone}_{args.resolution}_{embedder.readout.name}'
+    )
+
+    if embedder.requires_fit:
+        fit_frame_paths = sample_fit_frame_paths(frame_paths)
+        print(f'fitting {embedder.readout.name} on {len(fit_frame_paths)} fit-set frames')
+        fit_readout(embedder, fit_frame_paths, batch_size=args.batch_size)
+        print(f'fit complete: {embedder.readout.metadata()}')
 
     embeddings, meta = run_embed(embedder, frame_paths, batch_size=args.batch_size)
 

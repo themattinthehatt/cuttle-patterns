@@ -31,10 +31,69 @@ Sections were originally marked (verify) for details stated from memory or assum
    `spatial_loss_weight_r0`'s default); `MeanPatchTaperReadout.metadata()` records the
    `taper_r0` used. Tested in `tests/embedders/test_spatial_weights.py` and
    `tests/embedders/test_readouts.py`.
-5. **Next:** the `gram_*` readouts (section 3), which reuse `patch_weights` for their
-   own spatial weighting but additionally need the fitted channel-projection machinery
-   (`fit_passes = 2`, `partial_fit`/`finalize_pass`) that `cls`/`meanpatch_*` don't
-   require.
+5. **Done (2026-09-20):** the `gram` readout (`GramReadout` in `readouts.py`), with a
+   deliberately narrower scope than section 3 describes below — see "Gram scope cuts"
+   right after this list for what's cut and why. Implemented:
+   - `cuttle_patterns/embedders/gram_math.py`: `weighted_moments`/`psd_sqrt`/`sym_to_vec`,
+     matching the reference implementation below verbatim, float64 throughout, unit
+     tested against hand-derived small cases in `tests/embedders/test_gram_math.py`.
+   - `GramReadout(dim, k, weights)` — `--readout gram --gram-k K --gram-weights
+     {uniform,taper}` on the CLI. Reuses `patch_weights` for spatial weighting
+     (cached per `grid_hw`, same pattern as `MeanPatchTaperReadout`). `fit_passes = 1`,
+     not the 2 passes section 3 describes for the full design — with no mean block to
+     calibrate and no final PCA to fit (both cut, see below), only the channel
+     projection itself needs fitting. `finalize_pass` eigendecomposes the accumulated
+     full-channel weighted covariance and keeps the top-`k` eigenvectors as `P`,
+     recording `variance_retained` (fraction of non-negative eigenvalue mass kept) in
+     metadata, per section 3's "Effective sample size" note.
+   - `cuttle_patterns.embed.sample_fit_frame_paths`/`fit_readout`: general machinery for
+     any stateful readout (`fit_passes > 0`), not gram-specific — a random,
+     per-video-capped sample (`DEFAULT_FIT_SET_SIZE = 4000`, `DEFAULT_FIT_SEED = 42`,
+     not exposed as CLI flags) drawn from the same frames being embedded, per "Fitting
+     stateful readouts" in section 1. `cmd_embed.py` calls this automatically before the
+     main embed loop whenever `embedder.requires_fit`.
+   - **Refits every run, doesn't cache fit state across runs** (explicit decision): the
+     fixed seed/fit-set-size makes fitting deterministic, so re-running `cuttle embed`
+     with the same flags always reproduces the same projection `P` without needing a
+     cache format or invalidation story. `write_embedder_output` still writes
+     `embedder.readout.state_dict()` to `{model_dir}/readout_state.pt` when non-empty
+     (gram's is `{P, variance_retained}`) — a provenance record for later inspection,
+     not something anything in `cuttle_patterns` reads back.
+   - Fixed a real latent bug this surfaced: `write_embedder_output`'s `model_params`
+     dict spread `**embedder.backbone.metadata()` *after* its own explicit
+     `'embed_dim': embedder.dim`, and `DINOv3Backbone.metadata()` also returned a key
+     named `embed_dim` (the backbone's channel dimension) — silently overwriting the
+     readout's actual output dimensionality in `config.yaml`. Invisible for
+     `cls`/`meanpatch_*` (backbone channel dim and readout output dim happen to be
+     equal), caught by a real end-to-end smoke test once gram's projection made them
+     differ (768 → 36 for a toy `k=8` run). Fixed by renaming the backbone's key to
+     `backbone_hidden_size`.
+   - Tested in `tests/embedders/test_readouts.py` (`TestGramReadout`), extended
+     `tests/test_embed.py`/`tests/cli/test_cmd_embed.py` for the fit-set
+     sampling/fitting/CLI-kwarg-passthrough plumbing, and smoke-tested end to end
+     against real `facebook/dinov3-vits16-pretrain-lvd1689m` weights (fit + embed +
+     `cuttle reduce`/`cuttle cluster` on the output, all completed successfully).
+
+**Gram scope cuts (2026-09-20):** section 3 below describes a fuller design than what's
+built. Three knobs are deliberately not implemented in this first pass:
+- **`include_mean`** — dropped. The covariance block is deliberately centered (mean
+  removed) so it's a pure texture statistic, blind to each frame's average feature
+  level; concatenating a mean block reintroduces exactly the kind of cheap, low-level
+  signal (average activation) that's repeatedly won out over abstract pattern elsewhere
+  in this project (see `latent_space_confounds.md`'s "recurring pattern" — identity,
+  then rectangle-edge geometry). It's also largely redundant with `meanpatch_taper`,
+  which already exposes the same taper-weighted mean at full width (not lossily
+  projected to `k` dims). Can be added later as a small, self-contained follow-up.
+- **`shrink_alpha`** — hardcoded off (no shrinkage applied to `G` before `psd_sqrt`).
+  The doc's own initial embedder set never turns this on either.
+- **`final_pca_dim`** — not implemented at all, no reference to it anywhere in the code.
+  Section 3 frames this as a storage optimization "for bulk extraction over the full
+  6.5M-frame dataset"; the actual eval frame set is ~94K frames (full float32 vectors at
+  `k=64` are ~785MB), so it isn't needed at this scale.
+
+Losing `include_mean`/`final_pca_dim` also simplifies fitting: section 3's Pass 1 (block
+scalars to balance a concatenated mean block, plus optionally fitting a final PCA) has
+nothing left to do once both are cut, so `GramReadout.fit_passes = 1`, not 2.
 
 1. Embedder protocol
 Design
