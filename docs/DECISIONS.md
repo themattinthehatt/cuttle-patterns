@@ -6,6 +6,55 @@ considered instead, and current status. Add new entries at the top. See
 
 ---
 
+## Frozen pretrained embedders (`cuttle embed`): DINOv3 + CLS/mean-patch/Gram readouts
+
+**Date:** 2026-09-20
+**Status:** decided, implemented
+
+**Decision:** Add a new pipeline stage, `cuttle embed`, that runs a frozen pretrained
+DINOv3 ViT (`facebook/dinov3-{vits16,vitb16,vitl16}-pretrain-lvd1689m`, via Hugging Face
+`transformers`) over exported frames and writes a single combined `(N, D)` embeddings
+array plus a row-aligned manifest — not one `.npy` per frame, the convention
+`cuttle predict --save-latents` uses. Four readouts turn the backbone's tokens into a
+vector: `cls` (the CLS token), `meanpatch_uniform`/`meanpatch_taper` (mean of patch
+tokens, optionally down-weighting border/corner patches with a raised-cosine taper), and
+`gram` (a spatially weighted, channel-projected covariance texture descriptor). Output is
+duck-typed as a BEAST model directory, the same precedent as the "Classifier embeddings"
+entry below, so `cuttle reduce`/`cuttle cluster`/`cuttle serve` need no embedder-specific
+code. Full design in
+[embedder.md](implementation_notes/embedder.md).
+
+**Why:** Feeds Tier B of the [embedding eval harness](../cuttle_patterns/eval/README.md)
+— scoring how well a frozen, off-the-shelf backbone organizes frames by pattern vs.
+identity, as an external reference point against the from-scratch BEAST/MSPS-VAE
+backbones. Writing a single combined array instead of one file per frame was necessary,
+not just an optimization: the external hard drive `results_dir` lives on makes writing
+millions of tiny files extremely slow. `cuttle embed` deliberately runs one backbone +
+one readout per invocation rather than batching CLS/mean-patch/Gram together to share one
+forward pass — inference is cheap relative to how often this gets iterated on, and a
+single-embedder-per-run CLI is much simpler to reason about than a batch script juggling
+multiple readouts' fit state at once.
+
+**Alternatives considered:** a fuller Gram design (an optional first-order mean block
+concatenated onto the covariance vector, covariance shrinkage, a final PCA truncation
+step) was sketched but deliberately not built — the mean block would reintroduce exactly
+the kind of low-level, cheap-shortcut signal (average activation level) this whole
+project keeps needing to fight (see
+[latent_space_confounds.md](latent_space_confounds.md)'s "recurring pattern"), and is
+largely redundant with `meanpatch_taper` anyway; shrinkage and final-PCA were never
+actually needed at this dataset's scale. VGG-19 as a second Gram backbone remains a
+planned follow-up, not built — see embedder.md's closing section.
+
+**Trade-off / known risk:** the `gram` readout's channel projection is refit from
+scratch on every `cuttle embed` invocation (deterministic given a fixed seed and fit-set
+size) rather than cached across runs, trading a small amount of repeated compute for no
+cache-invalidation story to maintain. Renaming `cuttle_patterns/embeddings.py` to
+`cuttle_patterns/latents.py` (to avoid a name clash with the new write-side
+`cuttle_patterns/embed.py`) touched every module that loads latents — no public API
+changed, only the module path.
+
+---
+
 ## Classifier embeddings: duck-type as a BEAST model dir, reuse reduce/cluster/dashboard as-is
 
 **Date:** 2026-09-18

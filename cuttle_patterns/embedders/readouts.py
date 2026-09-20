@@ -1,9 +1,9 @@
 """Readouts: turn a backbone's `TokenOutput` into a fixed-length vector.
 
-`cls`, `meanpatch_uniform`, `meanpatch_taper`, and `gram` are implemented so far. `gram`
-deliberately omits the `include_mean`/`shrink_alpha`/`final_pca_dim` knobs described in
-`docs/implementation_notes/embedder.md` section 3 -- see "Implementation order" there
-for why (cut from the first pass, not forgotten).
+`cls`, `meanpatch_uniform`, `meanpatch_taper`, and `gram` are implemented. `gram`
+deliberately omits the optional mean-block/shrinkage knobs described in
+`docs/implementation_notes/embedder.md`'s "Gram readout" section -- see its "Not
+implemented" note for why (cut deliberately, not forgotten).
 """
 
 import torch
@@ -87,7 +87,7 @@ class MeanPatchTaperReadout(Readout):
     Down-weights border/corner patches with the same raised-cosine radial taper used
     for `use_spatial_loss_weight` in the masked MSPS-VAE, so rectangle-inscription
     edge/corner leakage contributes less to the mean than under `meanpatch_uniform`
-    -- see "Spatial weights" in `docs/implementation_notes/embedder.md` section 3.
+    -- see "Spatial weights" in `docs/implementation_notes/embedder.md`.
     """
 
     name = MEANPATCH_TAPER_READOUT_NAME
@@ -150,16 +150,13 @@ class GramReadout(Readout):
     weighted, mean-centered covariance across positions: which feature directions
     co-vary across the frame. Summing over positions discards *where* features occur
     and keeps *which* co-occur -- a texture descriptor that's position-invariant by
-    construction. See "Gram readout on DINOv3 final-layer patch tokens" in
-    `docs/implementation_notes/embedder.md` section 3 for the full design and the
-    caveat each step follows from.
+    construction. See "Gram readout" in `docs/implementation_notes/embedder.md` for the
+    full design and the caveat each step follows from.
 
-    Deliberately does not implement `include_mean` (concatenating a first-order mean
-    block), `shrink_alpha` (covariance shrinkage), or `final_pca_dim` -- all described
-    in section 3 but cut from this first pass; see "Implementation order" there. With
-    no mean block to calibrate a second block's scale against and no final PCA to fit,
-    fitting only needs the channel projection itself: `fit_passes = 1`, not the two
-    passes section 3 describes for the full design.
+    Deliberately does not implement a first-order mean block or covariance shrinkage --
+    see that section's "Not implemented" note for why. With no mean block to calibrate a
+    second block's scale against, fitting only needs the channel projection itself:
+    `fit_passes = 1`.
     """
 
     fit_passes = 1

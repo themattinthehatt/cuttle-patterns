@@ -1,11 +1,11 @@
 """Core math for the Gram (weighted, channel-projected covariance) readout.
 
-Pure functions on tensors, matching the reference implementation in "Gram readout on
-DINOv3 final-layer patch tokens" (`docs/implementation_notes/embedder.md` section 3)
-verbatim, so each design caveat documented there (covariance not correlation, centered
-with the mean kept separately, matrix square root normalization, sqrt(2) on
-off-diagonals) traces back to one line here. Everything here runs in float64 -- callers
-are responsible for casting token tensors up from the backbone's native dtype.
+Pure functions on tensors, matching the reference implementation in "Gram readout"
+(`docs/implementation_notes/embedder.md`) verbatim, so each design caveat documented
+there (covariance not correlation, centered mean discarded, matrix square root
+normalization, sqrt(2) on off-diagonals) traces back to one line here. Everything here
+runs in float64 -- callers are responsible for casting token tensors up from the
+backbone's native dtype.
 """
 
 import math

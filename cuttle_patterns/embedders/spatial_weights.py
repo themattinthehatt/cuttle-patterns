@@ -1,5 +1,5 @@
-"""Patch-grid spatial weights shared by the `meanpatch_taper` and (planned) `gram_*`
-readouts -- see "Spatial weights" in `docs/implementation_notes/embedder.md` section 3.
+"""Patch-grid spatial weights shared by the `meanpatch_taper` and `gram` readouts -- see
+"Spatial weights" in `docs/implementation_notes/embedder.md`.
 """
 
 import torch

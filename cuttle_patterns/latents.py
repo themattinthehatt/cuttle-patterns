@@ -10,7 +10,7 @@ on-disk layouts are supported, both under a model's
 - **Combined** (`cuttle embed`): a single `embeddings.npy` (shape `(n_frames, dim)`)
   plus a row-aligned `manifest.parquet` — written this way instead of one file per frame
   because writing millions of tiny files is extremely slow on some filesystems (see
-  `docs/implementation_notes/embedder.md`'s "Caching and output format").
+  `docs/implementation_notes/embedder.md`'s "CLI: `cuttle embed`" section).
 
 Also reads a model's saved `config.yaml` (written by `beast train` or `cuttle embed`
 alongside the checkpoint) to split an `msps_vae` model's concatenated latent vector back

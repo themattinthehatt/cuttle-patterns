@@ -5,9 +5,9 @@ combined `(N, D)` array plus a row-alignment manifest -- writing millions of tin
 is extremely slow on the external drive `results_dir` currently lives on. Output is
 duck-typed as a BEAST model directory (same precedent as the classifier's own embedding,
 see `docs/DECISIONS.md`'s "Classifier embeddings" entry), so `cuttle reduce`/`cuttle
-cluster`/`cuttle serve` need no embedder-specific code once `cuttle_patterns.latents`
-gains a second `load_latents` branch reading this layout (not done yet -- see
-"Implementation order" in `docs/implementation_notes/embedder.md`).
+cluster`/`cuttle serve` need no embedder-specific code -- `cuttle_patterns.latents.load_latents`
+reads this layout via its combined-format branch. See
+`docs/implementation_notes/embedder.md` for the full embedder design.
 """
 
 import math
@@ -33,8 +33,8 @@ DEFAULT_GRAM_K = 64
 DEFAULT_GRAM_WEIGHTS = 'taper'
 # a stateful readout's fit set is a random, per-video-capped sample drawn directly from
 # the frames being embedded -- see "Fitting stateful readouts" in
-# docs/implementation_notes/embedder.md section 1; fixed size/seed keep it deterministic,
-# so refitting every `cuttle embed` run reproduces the same projection every time
+# docs/implementation_notes/embedder.md; fixed size/seed keep it deterministic, so
+# refitting every `cuttle embed` run reproduces the same projection every time
 DEFAULT_FIT_SET_SIZE = 4000
 DEFAULT_FIT_SEED = 42
 MODEL_CLASS = 'embedder'
@@ -217,8 +217,8 @@ def fit_readout(
     Runs `embedder.readout.fit_passes` passes over `fit_frame_paths`, calling
     `partial_fit` on every batch's backbone output and `finalize_pass` at the end of
     each pass -- see "Fitting stateful readouts" in
-    `docs/implementation_notes/embedder.md` section 1. A no-op if the readout is
-    stateless (`embedder.requires_fit` is False).
+    `docs/implementation_notes/embedder.md`. A no-op if the readout is stateless
+    (`embedder.requires_fit` is False).
 
     Args:
         embedder: the embedder whose readout to fit.

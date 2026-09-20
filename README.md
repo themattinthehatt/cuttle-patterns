@@ -42,7 +42,7 @@ data_dir: /path/to/cuttle/data
 results_dir: /path/to/cuttle/results
 ```
 
-## Pipeline
+## Pipeline: preprocessing
 
 The first few steps after `cuttle setup`, run in order. Every subcommand reads
 `data_dir`/`results_dir` from the config file by default; override either with
@@ -172,6 +172,8 @@ that just uses all of them, with a printed warning. As with the earlier steps,
 already exists, and `--video-path`/`--pose-path` process a single video against an
 explicit pose CSV instead of scanning `--input-dir` (default `results_dir/rectangles`).
 
+## Pipeline: extract embeddings
+
 ### 5. `cuttle train` / `cuttle predict`
 
 Thin wrappers around BEAST's own `beast train`/`beast predict` CLI (`beast-backbones`
@@ -202,7 +204,34 @@ straight through to BEAST's own flags of the same purpose.
 default — per-frame embeddings as `latents/{...}/{frame_stem}.npy` when
 `--save-latents` is passed, reconstructed images when `--save-reconstructions` is.
 
-### 6. `cuttle reduce`
+### 6. `cuttle embed`
+
+Runs a frozen, pretrained DINOv3 ViT over exported frames — no training required — as an
+alternative embedding source alongside `cuttle train`/`cuttle predict`'s from-scratch
+BEAST backbones. Requires a Hugging Face token with access to the gated DINOv3 weights
+(`hf auth login --token <token>`).
+
+```bash
+cuttle embed --backbone vitb16 --resolution 224 --readout cls
+```
+
+`--backbone` (`vits16`/`vitb16`/`vitl16`) × `--resolution` (any multiple of 16, e.g.
+224/448) × `--readout` (`cls`/`meanpatch_uniform`/`meanpatch_taper`/`gram` — the last
+configurable via `--gram-k`/`--gram-weights`) select the embedder; `--model-name`
+defaults to `{backbone}_{resolution}_{readout name}` (e.g. `dinov3_vitb16_224_cls`).
+
+Writes to `results_dir/beast_models/{model_name}/`, duck-typed as a BEAST model
+directory — same downstream contract as `cuttle predict --save-latents`, but as a single
+combined `embeddings.npy` + `manifest.parquet` per run rather than one file per frame
+(writing millions of tiny files is extremely slow on some filesystems) — so
+`cuttle reduce`/`cuttle cluster`/`cuttle serve` work against it exactly like a trained
+BEAST checkpoint. See
+[docs/implementation_notes/embedder.md](docs/implementation_notes/embedder.md) for the
+full embedder design.
+
+## Pipeline: post-processing
+
+### 7. `cuttle reduce`
 
 Projects the per-frame latents from `cuttle predict --save-latents` to 2D via UMAP, so
 they can be compared across hyperparameter settings and, eventually, visualized.
@@ -221,7 +250,7 @@ encodes `--n-neighbors`/`--min-dist` (default 15/0.1), so different sweeps land 
 separate files instead of overwriting each other; `--metric`/`--random-state` (default
 `euclidean`/42) are also exposed but aren't part of the filename.
 
-### 7. `cuttle cluster`
+### 8. `cuttle cluster`
 
 Assigns a discrete cluster label to every frame, clustering the raw per-frame latents
 directly (not the 2D UMAP projection from `cuttle reduce`) — k-means is the only method
@@ -238,3 +267,18 @@ Reads the same `.npy` latents `cuttle reduce` does (`--predictions-name`, defaul
 `clusters/kmeans_k10.parquet`). `--n-clusters` is required (no sensible universal
 default); `{hparams}` encodes it so different sweeps land in separate files;
 `--random-state` (default 42) is also exposed but isn't part of the filename.
+
+### 9. `cuttle serve`
+
+Launches the interactive embedding explorer: a Bokeh dashboard with a dot per frame,
+hover to see the corresponding aligned frame image, colored by any UMAP reduction's
+cluster/classification attributes. The Model dropdown lists every entry under
+`results_dir/beast_models/` — a trained BEAST checkpoint, an MSPS-VAE run, or a
+`cuttle embed` output all work the same way.
+
+```bash
+cuttle serve
+```
+
+`--port` (default 5006) sets the port the app and its frame-image route are served on;
+`--no-show` skips auto-opening a browser tab.

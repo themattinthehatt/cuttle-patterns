@@ -1,7 +1,7 @@
 """DINOv3 backbone: Hugging Face `transformers` ViTs, CLS + patch tokens.
 
 Loading, token layout, and normalization constants are all verified against the live
-models (not assumed) — see "DINOv3 backbone and CLS / mean-patch readouts" in
+models (not assumed) — see "DINOv3 backbone" and "Readouts" in
 `docs/implementation_notes/embedder.md`.
 """
 
