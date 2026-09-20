@@ -77,3 +77,4 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     print(f'Ingested {n_videos} videos across {n_sessions} sessions.')
     print(f'Total frames: {total_frames} ({total_blank_frames} flagged blank).')
     print(f'Manifest written to {manifest_path}')
+    print('next: cuttle inscribe')

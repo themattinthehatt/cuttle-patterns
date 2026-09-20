@@ -2,7 +2,7 @@
 
 **Status:** implemented, on beast's `msps-vae` branch
 (`~/Dropbox/github/paninski-lab/beast`) — see "Where this lives" below for why it's there
-and not in this repo. `configs/beast_msps_vae.yaml` in this repo mirrors beast's
+and not in this repo. `../../configs/beast_msps_vae.yaml` in this repo mirrors beast's
 `configs/msps_vae.yaml`. A real performance bug was found and fixed post-implementation
 (see "Implementation gotcha" below) before the first real training run. This doc tracks
 the design and stays here (rather than in the beast repo) because it's the record of *why*
@@ -215,14 +215,14 @@ within the batch). `beast/data/datamodules.py`'s `BaseDataModule` generalized it
 
 This is deliberately *not* built as new code in `cuttle_patterns` reusing beast
 internals — `cuttle train` shells out to `beast train` as a subprocess (see "cuttle
-train/cuttle predict: subprocess wrappers around BEAST's own CLI" in `DECISIONS.md`),
+train/cuttle predict: subprocess wrappers around BEAST's own CLI" in `../DECISIONS.md`),
 specifically to avoid coupling to beast's internal API surface. A model registered only
 from the `cuttle_patterns` process wouldn't be visible to that subprocess. Building it in
 beast keeps that existing architecture untouched on the cuttle-patterns side.
 
 ## Config surface (new `model_class: msps_vae`)
 
-New `model_params` relative to `configs/beast_resnet_ae.yaml`, with the values chosen for
+New `model_params` relative to `../../configs/beast_resnet_ae.yaml`, with the values chosen for
 the first real run (`configs/beast_msps_vae.yaml` here, `configs/msps_vae.yaml` in beast):
 - `num_latents_unsupervised: 12` (`z_u` size)
 - `num_latents_background: 4` (`z_b` size) — total 16, deliberately matching the
@@ -263,7 +263,7 @@ directory structure.
 **Date:** 2026-09-18
 
 **Motivation:** inspecting representative frames per cluster for `iter-1.1_msps-vae_d16`'s
-`kmeans_k16` (`scratch/plot_cluster_frames.py`, via the dashboard) surfaced a second
+`kmeans_k16` (`../../scripts/plot_cluster_frames.py`, via the dashboard) surfaced a second
 confound in `z_u`, distinct from the identity leakage the `z_b` split above already
 addresses: several clusters that are visually the same coarse pattern (e.g. "dark
 aggression" — dark base, white streaks/spots) split apart by *where* the inscribed
@@ -291,7 +291,7 @@ encoder from picking it up if doing so is cheap regardless of reward — if the 
 persists after this change, that's the signal to revisit input-side masking despite its
 cost, not evidence the diagnosis was wrong. Runner-up profiles (plain Gaussian,
 super-Gaussian — both smooth but without the plateau/exact-zero-slope property below) are
-in `scratch/plot_loss_weight_profiles.py` alongside the chosen one, for the same reason
+in `../../scratch/plot_loss_weight_profiles.py` alongside the chosen one, for the same reason
 this doc keeps runner-up options elsewhere (see Open questions below).
 
 **Chosen profile: raised-cosine (Tukey-style) radial taper.** Flat at weight 1.0 for
@@ -310,7 +310,7 @@ regardless of `r0`, so corners are fully ignored by construction with no corner-
 logic needed. Chosen over the Gaussian/super-Gaussian alternatives for having an explicit,
 interpretable plateau (rather than an approximate one) and for reaching zero with zero
 slope at the cutoff — no new discontinuity at the boundary for the model to exploit.
-Default `r0 = 0.5`, picked by eye from `scratch/plot_loss_weight_profiles.py`'s comparison
+Default `r0 = 0.5`, picked by eye from `../../scratch/plot_loss_weight_profiles.py`'s comparison
 figures (written to `results_dir/beast_frames_qc/loss_mask/`) — both the abstract
 radial-profile plot and the same three candidate masks overlaid on ~20 real sampled
 frames, resized to square the way the autoencoder sees them.
@@ -341,7 +341,7 @@ beast-side changes contained to what training actually needs.
 `spatial_loss_weight_r0` (default `0.5`) exposes the taper's plateau radius, matching the
 Open Questions note above that `r0` may need revisiting. When off, `compute_loss` is
 byte-for-byte the original unweighted `mse_loss` call — no behavior change for existing
-runs/configs. `configs/msps_vae.yaml` (beast) / `configs/beast_msps_vae.yaml` (here) both
+runs/configs. `configs/msps_vae.yaml` (beast) / `../../configs/beast_msps_vae.yaml` (here) both
 default it off, since it hasn't been validated against a real training run yet; flip it
 to `true` to try it on `iter-1.1_msps-vae_d16`'s successor run.
 
@@ -409,7 +409,7 @@ Replacing "eyeball the UMAP colored by `video_name`" with concrete checks:
   `latents = concat(z_u, z_b)` tensor (matching BEAST's existing single-flat-tensor
   `predict_step` contract, so `beast/inference.py` needed no changes), with the split
   index documented as `num_latents_unsupervised` in `MspsVae.predict_step`'s docstring.
-  **Still pending:** `cuttle_patterns/embeddings.py`'s loader doesn't yet know about this
+  **Still pending:** `../../cuttle_patterns/embeddings.py`'s loader doesn't yet know about this
   split — it will load the full 16-d concatenated vector as-is. Needs a follow-up change
   so Phase 5/6 read `z_u` (the first `num_latents_unsupervised` columns) only, not
   `z_u`+`z_b` concatenated, once training confirms the split index convention is right.
@@ -417,14 +417,14 @@ Replacing "eyeball the UMAP colored by `video_name`" with concrete checks:
 ## Relationship to existing tracks
 
 A third parallel backbone-training track, alongside the in-progress 8-latent ResNet-AE
-(`configs/beast_resnet_ae.yaml`) and the originally-planned ViT + InfoNCE backbone (see
+(`../../configs/beast_resnet_ae.yaml`) and the originally-planned ViT + InfoNCE backbone (see
 "Backbone sequencing" in `DECISIONS.md`). MSPS-VAE builds on the ResNet-AE's reconstruction
 path specifically (shares `ResNetEncoder`/`ResNetDecoder`), not the ViT/contrastive path —
 the two aren't mutually exclusive, but this is now the primary candidate for solving the
 video-identity-clustering problem, ahead of further contrastive-sampling changes to the ViT
 path.
 
-On the `cuttle_patterns` side this needed only the new `configs/beast_msps_vae.yaml`
+On the `cuttle_patterns` side this needed only the new `../../configs/beast_msps_vae.yaml`
 (`model_class: msps_vae`, mirroring beast's own `configs/msps_vae.yaml`) — `cuttle train`/
 `cuttle predict` already pass `model_class` through opaquely via BEAST's own CLI, no code
 changes required there. The one real follow-up on this side is the `embeddings.py` loader

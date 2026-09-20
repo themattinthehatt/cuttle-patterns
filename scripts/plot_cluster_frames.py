@@ -5,13 +5,13 @@ For a given BEAST model and cluster run, loads the clustering parquet from
 distinct `cluster` label, randomly samples `--n-frames` member frames, loads their
 exported PNGs from `results_dir/beast_frames/{video_name}/img{frame_number:08d}.png`, and
 plots them in a grid (default 4 columns x 3 rows). One figure is written per cluster to
-`results_dir/beast_frames_qc/clusters/{model_name}_{cluster_run}/`.
+`results_dir/beast_models/{model_name}/clusters/{cluster_run}/`.
 
 Frame selection is uniform-random per cluster for now; a nearest-centroid or other more
 "representative" selection strategy may replace this later.
 
 Usage:
-    python scratch/plot_cluster_frames.py \
+    python scripts/plot_cluster_frames.py \
         --model-name iter-1.1_msps-vae_d16 \
         --cluster-run kmeans_k16
 """
@@ -199,8 +199,10 @@ def main() -> None:
 
     output_dir = (
         results_dir
-        / paths.CLUSTER_FRAME_GRIDS_RELPATH
-        / f'{args.model_name}_{args.cluster_run}'
+        / paths.BEAST_MODELS_RELPATH
+        / args.model_name
+        / paths.CLUSTERS_RELPATH
+        / args.cluster_run
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 

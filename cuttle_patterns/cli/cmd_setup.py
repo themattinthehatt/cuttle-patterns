@@ -58,3 +58,4 @@ def cmd_setup(args: argparse.Namespace | None = None) -> None:
     )
     save_config(config, config_path)
     print(f'Config written to {config_path}')
+    print('next: cuttle ingest')

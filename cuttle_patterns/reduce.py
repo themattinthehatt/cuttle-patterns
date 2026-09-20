@@ -1,6 +1,6 @@
 """Project per-frame BEAST embeddings to 2D via UMAP (Phase 5).
 
-Reads the latents `cuttle_patterns.embeddings.load_latents` returns and runs UMAP over
+Reads the latents `cuttle_patterns.latents.load_latents` returns and runs UMAP over
 them. `cuttle cluster` (Phase 6) reads the same latents directly rather than this
 module's output, since clustering happens in the raw embedding space, not the 2D
 projection.
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import umap
 
-DEFAULT_N_NEIGHBORS = 15
+DEFAULT_N_NEIGHBORS = 50
 DEFAULT_MIN_DIST = 0.1
 DEFAULT_METRIC = 'euclidean'
 DEFAULT_RANDOM_STATE = 42
@@ -64,7 +64,7 @@ def build_umap_dataframe(meta: pd.DataFrame, umap_xy: np.ndarray) -> pd.DataFram
     """Attach UMAP coordinates to per-frame metadata.
 
     Args:
-        meta: per-frame metadata from `cuttle_patterns.embeddings.load_latents`, with
+        meta: per-frame metadata from `cuttle_patterns.latents.load_latents`, with
             columns `video_name`, `day`, `tank`, `role`, `frame_number`.
         umap_xy: array of shape (len(meta), 2), row-aligned with meta.
 

@@ -1,13 +1,20 @@
-"""Load per-frame BEAST embeddings written by `cuttle predict --save-latents`.
+"""Load per-frame embeddings, from either `cuttle predict` or `cuttle embed`.
 
-Shared by Phase 5 (`cuttle reduce`) and Phase 6 (`cuttle cluster`), both of which read
-the same per-frame `.npy` latent vectors under a model's
-`image_predictions/{predictions_name}/latents/{video_name}/img{frame_number}.npy` tree
-(BEAST's own output layout — see the docstring of `cuttle_patterns/paths.py`).
+Shared by Phase 5 (`cuttle reduce`) and Phase 6 (`cuttle cluster`), both of which read a
+model's latents via `load_latents` without caring which command produced them. Two
+on-disk layouts are supported, both under a model's
+`image_predictions/{predictions_name}/latents/` directory:
 
-Also reads a model's saved `config.yaml` (written by `beast train` alongside the
-checkpoint) to split an `msps_vae` model's concatenated latent vector back into its two
-named subspaces — see `split_latent_spaces`.
+- **Per-frame** (`cuttle predict --save-latents`, BEAST's own output layout): one
+  `{video_name}/img{frame_number}.npy` file per frame.
+- **Combined** (`cuttle embed`): a single `embeddings.npy` (shape `(n_frames, dim)`)
+  plus a row-aligned `manifest.parquet` — written this way instead of one file per frame
+  because writing millions of tiny files is extremely slow on some filesystems (see
+  `docs/implementation_notes/embedder.md`'s "CLI: `cuttle embed`" section).
+
+Also reads a model's saved `config.yaml` (written by `beast train` or `cuttle embed`
+alongside the checkpoint) to split an `msps_vae` model's concatenated latent vector back
+into its two named subspaces — see `split_latent_spaces`.
 """
 
 import re
@@ -57,12 +64,15 @@ def parse_video_name(video_name: str) -> dict[str, int | str]:
 
 
 def load_latents(latents_dir: Path) -> tuple[np.ndarray, pd.DataFrame]:
-    """Load every per-frame latent vector under a `cuttle predict --save-latents` tree.
+    """Load a model's latents, from either on-disk layout described above.
+
+    Dispatches on whether `latents_dir/embeddings.npy` exists: if so, reads the
+    `cuttle embed` combined layout (`_load_combined_latents`); otherwise falls back to
+    the per-frame `cuttle predict --save-latents` layout, unchanged from before `cuttle
+    embed` existed.
 
     Args:
-        latents_dir: `.../image_predictions/{predictions_name}/latents` directory,
-            containing one subdirectory per video, each holding `img{frame_number}.npy`
-            files (BEAST's own output layout).
+        latents_dir: `.../image_predictions/{predictions_name}/latents` directory.
 
     Returns:
         (X, meta): `X` is a float array of shape (n_frames, latent_dim); `meta` is a
@@ -70,15 +80,21 @@ def load_latents(latents_dir: Path) -> tuple[np.ndarray, pd.DataFrame]:
         `role`, `frame_number`, sorted by `(video_name, frame_number)`.
 
     Raises:
-        FileNotFoundError: if latents_dir does not exist.
-        ValueError: if latents_dir exists but contains no `.npy` files, or a filename
-            doesn't match the expected `img{frame_number}.npy` pattern.
+        FileNotFoundError: if latents_dir does not exist, or (combined layout only) it
+            has an `embeddings.npy` with no `manifest.parquet` alongside it.
+        ValueError: if latents_dir exists but contains no latents in either layout, a
+            per-frame filename doesn't match the expected `img{frame_number}.npy`
+            pattern, or (combined layout only) `embeddings.npy` and `manifest.parquet`
+            have different row counts.
     """
     if not latents_dir.is_dir():
         raise FileNotFoundError(
             f'latents directory does not exist: {latents_dir}; run `cuttle predict '
-            f'--save-latents` first'
+            f'--save-latents` or `cuttle embed` first'
         )
+
+    if (latents_dir / 'embeddings.npy').is_file():
+        return _load_combined_latents(latents_dir)
 
     latent_paths = sorted(latents_dir.glob('*/*.npy'))
     if not latent_paths:
@@ -100,6 +116,38 @@ def load_latents(latents_dir: Path) -> tuple[np.ndarray, pd.DataFrame]:
 
     meta = pd.DataFrame(rows, columns=['video_name', 'day', 'tank', 'role', 'frame_number'])
     X = np.stack(vectors)
+
+    order = meta.sort_values(['video_name', 'frame_number']).index.to_numpy()
+    return X[order], meta.iloc[order].reset_index(drop=True)
+
+
+def _load_combined_latents(latents_dir: Path) -> tuple[np.ndarray, pd.DataFrame]:
+    """Load the single-combined-array layout `cuttle embed` writes.
+
+    Args:
+        latents_dir: directory containing `embeddings.npy` and `manifest.parquet`.
+
+    Returns:
+        same contract as `load_latents`.
+
+    Raises:
+        FileNotFoundError: if `manifest.parquet` is missing alongside `embeddings.npy`.
+        ValueError: if the two files have different row counts.
+    """
+    manifest_path = latents_dir / 'manifest.parquet'
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f'{latents_dir} has embeddings.npy but no manifest.parquet alongside it; '
+            f'cuttle embed always writes both together'
+        )
+
+    X = np.load(latents_dir / 'embeddings.npy')
+    meta = pd.read_parquet(manifest_path)
+    if len(meta) != len(X):
+        raise ValueError(
+            f'manifest.parquet has {len(meta)} rows but embeddings.npy has {len(X)} in '
+            f'{latents_dir}'
+        )
 
     order = meta.sort_values(['video_name', 'frame_number']).index.to_numpy()
     return X[order], meta.iloc[order].reset_index(drop=True)

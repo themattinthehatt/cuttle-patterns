@@ -7,7 +7,7 @@ from pathlib import Path
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
-from cuttle_patterns.embeddings import LATENT_SPACE_ALL, load_latents, split_latent_spaces
+from cuttle_patterns.latents import LATENT_SPACE_ALL, load_latents, split_latent_spaces
 from cuttle_patterns.reduce import (
     DEFAULT_METRIC,
     DEFAULT_MIN_DIST,
@@ -129,3 +129,8 @@ def cmd_reduce(args: argparse.Namespace) -> None:
 
         df.to_parquet(output_path, index=False)
         print(f'Wrote {len(df)} rows to {output_path}')
+
+    print(
+        f'next: cuttle cluster --model-name {args.model_name} --n-clusters K (and/or '
+        'cuttle serve to visualize)'
+    )

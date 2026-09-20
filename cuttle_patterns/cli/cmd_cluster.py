@@ -13,7 +13,7 @@ from cuttle_patterns.cluster import (
     run_kmeans,
 )
 from cuttle_patterns.config import load_config
-from cuttle_patterns.embeddings import load_latents, select_cluster_latents, split_latent_spaces
+from cuttle_patterns.latents import load_latents, select_cluster_latents, split_latent_spaces
 
 DEFAULT_PREDICTIONS_NAME = 'beast_frames'
 
@@ -118,3 +118,4 @@ def cmd_cluster(args: argparse.Namespace) -> None:
 
     df.to_parquet(output_path, index=False)
     print(f'Wrote {len(df)} rows to {output_path}')
+    print('next: cuttle serve to visualize')

@@ -187,3 +187,8 @@ def cmd_extract(args: argparse.Namespace) -> None:
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest.to_parquet(manifest_path, index=False)
     print(f'Manifest written to {manifest_path}')
+    print(
+        'next: cuttle train --config configs/beast_resnet_ae.yaml --model-name '
+        '<model-name> (or cuttle embed for a frozen pretrained embedder, no training '
+        'required)'
+    )

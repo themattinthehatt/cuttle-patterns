@@ -57,12 +57,12 @@ to snapshot or hash separately.
 ## Per-frame metadata
 
 **Identity:** `video_name`, plus `day`/`tank`/`role` (already parsed by
-`cuttle_patterns/embeddings.py:parse_video_name`). Individual ID mapping — see "To verify
+`cuttle_patterns/latents.py:parse_video_name`). Individual ID mapping — see "To verify
 in the repo before starting" below.
 
 **Pattern proxy:** the classifier's predicted class, full softmax vector, and
 max-probability, already computed for every frame under `beast_frames/` and stored at
-`results_dir/classifications/{classifier_name}.parquet` (`scripts/classify_skin_pattern.py`),
+`results_dir/classifications/{classifier_name}.parquet` (`../../scripts/classify_skin_pattern.py`),
 keyed by `(video_name, frame_number)` — join, don't recompute. Low max-probability frames
 (below ~0.5, tune after looking at the distribution) are the "ambiguous" subset used in
 later metrics.
@@ -81,7 +81,7 @@ Two tiers, because most of the embeddings this harness needs to score already ex
 **Tier A — already produced by `beast train`/`cuttle predict`.** The plain AE, MSPS-VAE,
 and masked MSPS-VAE checkpoints already write per-frame latents under
 `beast_models/{model_name}/image_predictions/{predictions_name}/latents/`. The harness
-loads these with the existing `cuttle_patterns/embeddings.py` (`load_latents` +
+loads these with the existing `../../cuttle_patterns/latents.py` (`load_latents` +
 `split_latent_spaces`, which already exposes MSPS-VAE's `z_u`/`z_b`/full `z`) and joins
 them to the eval manifest by `(video_name, frame_number)`. No new extraction code needed
 for this tier — for MSPS-VAE/masked MSPS-VAE, `z_b` serves as a sanity check: it *should*
@@ -111,7 +111,7 @@ cheap identity-removal baseline worth adding once the core scoreboard works — 
 L2-normalize, then PCA to 64 dimensions (or native dimension if smaller), with no
 whitening, and record variance retained. Start with a single **k=16** (matching the
 existing `kmeans_k16` convention already used in `iter-1.1_msps-vae_d16` and
-`scratch/plot_cluster_frames.py`), 5 seeds, mean ± std across seeds. Add k=8/32 later if
+`../../scripts/plot_cluster_frames.py`), 5 seeds, mean ± std across seeds. Add k=8/32 later if
 k=16 alone doesn't give a clear enough read.
 
 ## Metrics
@@ -138,7 +138,7 @@ variable once one beyond identity is available.
 
 ## Qualitative outputs
 
-Extend `scratch/plot_cluster_frames.py` (already exists) rather than replacing it. For
+Extend `../../scripts/plot_cluster_frames.py` (already exists) rather than replacing it. For
 each cluster (k=16, first seed), produce a frame grid that samples **across videos** (at
 most 2 frames per video per grid), with each tile annotated by video and classifier
 class. This stops a cluster from looking coherent just because it's all one session.
@@ -174,12 +174,12 @@ cuttle-patterns/
 `python -m cuttle_patterns.eval.run_core --classifier-name ... --model-name ...` builds
 the manifest, scores every requested model, and writes `{results_dir}/eval/` (see
 `cuttle_patterns.paths.EVAL_RELPATH`) containing `metrics.json` and `scoreboard.md` —
-see [`cuttle_patterns/eval/README.md`](../cuttle_patterns/eval/README.md)
+see [`../../cuttle_patterns/eval/README.md`](../../cuttle_patterns/eval/README.md)
 for the full walkthrough. Tier-B extraction (`embedders/`, `extract.py`) and qualitative
 outputs (`qualitative.py`) aren't built yet — deferred, per "Deferred to v2" / "Out of
 scope for now" above. Metrics are unit-tested on synthetic embeddings, including a case
 where embeddings are one-hot video IDs plus noise, confirming the identity metric fires
-and the pattern metric doesn't (`tests/eval/test_metrics.py`).
+and the pattern metric doesn't (`../../tests/eval/test_metrics.py`).
 
 ## Build order
 

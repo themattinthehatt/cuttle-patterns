@@ -1,6 +1,6 @@
 """Assign a discrete cluster label to every frame (Phase 6).
 
-Clusters the raw per-frame BEAST embeddings `cuttle_patterns.embeddings.load_latents`
+Clusters the raw per-frame BEAST embeddings `cuttle_patterns.latents.load_latents`
 returns — not the 2D UMAP projection from `cuttle_patterns.reduce` — since it's more
 principled to cluster in the space the embedding model actually produces.
 """
@@ -48,7 +48,7 @@ def build_cluster_dataframe(meta: pd.DataFrame, labels: np.ndarray) -> pd.DataFr
     """Attach cluster labels to per-frame metadata.
 
     Args:
-        meta: per-frame metadata from `cuttle_patterns.embeddings.load_latents`, with
+        meta: per-frame metadata from `cuttle_patterns.latents.load_latents`, with
             columns `video_name`, `day`, `tank`, `role`, `frame_number`.
         labels: array of shape (len(meta),), row-aligned with meta.
 

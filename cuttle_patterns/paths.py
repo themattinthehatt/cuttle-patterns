@@ -7,8 +7,6 @@ relative paths, so the tree layout only has to change in one place:
     results_dir/
     ├── beast_frames/                      # cuttle extract -> BEAST training frames
     ├── beast_frames_qc/
-    │   ├── clusters/
-    │   │   └── {model_name}_{cluster_run}/    # scratch/plot_cluster_frames.py
     │   ├── loss_mask/                     # scratch/plot_loss_weight_profiles.py
     │   └── reconstructions/
     │       └── {model_name}/              # scripts/make_reconstruction_clip.py
@@ -18,7 +16,8 @@ relative paths, so the tree layout only has to change in one place:
     │       ├── reduce/                    # cuttle reduce
     │       │   └── umap_{hparams}.parquet
     │       └── clusters/                  # cuttle cluster
-    │           └── {method}_{hparams}.parquet
+    │           ├── {method}_{hparams}.parquet
+    │           └── {method}_{hparams}/    # scripts/plot_cluster_frames.py
     ├── classifications/                    # scripts/classify_skin_pattern.py
     │   └── {classifier_name}.parquet       # model-independent, unlike clusters/ above
     ├── eval/                               # cuttle_patterns.eval.run_core
@@ -62,10 +61,6 @@ EVAL_RELPATH = Path('eval')
 # QC clips (scripts/make_mantle_clip.py, scripts/make_reconstruction_clip.py)
 MEDIA_RELPATH = Path('media')
 BEAST_FRAMES_QC_RECONSTRUCTIONS_RELPATH = Path('beast_frames_qc') / 'reconstructions'
-
-# per-cluster representative frame grids (scratch/plot_cluster_frames.py); one
-# subdirectory per {model_name}_{cluster_run} combination
-CLUSTER_FRAME_GRIDS_RELPATH = Path('beast_frames_qc') / 'clusters'
 
 # MSPS-AE loss-weighting mask QC figures (scratch/plot_loss_weight_profiles.py)
 LOSS_MASK_QC_RELPATH = Path('beast_frames_qc') / 'loss_mask'
