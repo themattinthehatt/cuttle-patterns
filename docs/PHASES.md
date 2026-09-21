@@ -491,6 +491,12 @@ the Phase 7 visualization to filter/color by.
   encodes `n_clusters`, e.g. `clusters/kmeans_k10.parquet`) — the same one-row-per-frame
   shape as the Phase 5 output, so cluster labels are just another joinable attribute
   rather than a replacement for the UMAP coordinates.
+- Qualitative QC: `cuttle clusterview --model-name {model_dir} --cluster-run {method}_{hparams}`,
+  via `cuttle_patterns/cli/cmd_clusterview.py`, promoted from the earlier standalone
+  `scripts/plot_cluster_frames.py`. `cuttle_patterns/visualization/cluster_frames.py`
+  samples `--n-frames` member frames per cluster and plots them in a grid, one PNG per
+  cluster, to `results_dir/beast_models/{model_dir}/clusters/{method}_{hparams}/`. Tests:
+  `tests/visualization/test_cluster_frames.py`, `tests/cli/test_cmd_clusterview.py`.
 
 ---
 
