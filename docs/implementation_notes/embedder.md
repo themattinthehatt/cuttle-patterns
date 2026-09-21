@@ -388,9 +388,9 @@ receptive field growing monotonically with depth:
 The "Key code" column is what actually appears in `backbone.key`/the default
 `model_name` (`LAYER_TO_CODE` in `vgg.py`) — kept short so
 `vgg19_3_448_gram_k64_taper` stays readable; `metadata()`'s `vgg_layer` field still
-records the full layer name (`relu3_1`) for provenance. Multi-layer fusion, if ever
-built, would concatenate these codes in block order (e.g. `vgg19_345_...` for
-`relu3_1`+`relu4_1`+`relu5_1`).
+records the full layer name (`relu3_1`) for provenance. Multi-layer fusion concatenates
+these codes in block order (e.g. `vgg19_345_...` for `relu3_1`+`relu4_1`+`relu5_1`) --
+see "VGG-19 Gram fusion" below.
 
 `--resolution` must be a multiple of the chosen layer's downsampling factor, so its
 output grid divides evenly (analogous to DINOv3's "multiple of the patch size"
@@ -401,13 +401,45 @@ fully convolutional and cheap per-pixel relative to a ViT, so `cuttle embed` def
 estimate per this doc's own resolution caveat above, still affordable at VGG's cost per
 pixel.
 
-**Not implemented: multi-layer fusion.** Only one layer per `cuttle embed` run is
-supported — `--vgg-layer` takes a single value, and each layer's channel count differs
-(64/128/256/512/512), so comparing single-layer results (early vs. late) is the natural
-first pass before deciding whether Gatys-style fusion (concatenating multiple layers'
-independently-fit, independently-normalized Gram vectors) is worth the added complexity.
+## VGG-19 Gram fusion
 
-The main motivation: final-layer ViT tokens have passed through many layers of global
-attention, so a Gram over them is a second-order summary of *contextualized* features,
-not a pure Gatys-style texture statistic the way VGG conv activations are. If
-DINOv3-Gram and VGG-Gram disagree, that difference is the first thing to investigate.
+`--vgg-layer` accepts a comma-separated list (e.g. `relu3_1,relu4_1,relu5_1`), only with
+`--readout gram` (fusion for `cls`/`meanpatch_*` was never requested and isn't
+supported). `cuttle_patterns.embedders.vgg.MultiLayerVGGBackbone` runs VGG-19's shared
+trunk exactly once per batch — not once per layer — by slicing `features` into
+contiguous segments between consecutive requested layers and chaining them, returning
+one `TokenOutput` per layer (canonical block order) instead of a single one.
+`cuttle_patterns.embedders.readouts.FusedGramReadout` pairs with it: one independently-fit
+`GramReadout` per layer (same `k`/`weights`, shared across all of them, not per-layer
+knobs — first-pass simplicity, not a design ceiling), concatenated in canonical order.
+`--vgg-layer`'s values are canonicalized (deduplicated, sorted to block order) regardless
+of input order, so `relu4_1,relu3_1` and `relu3_1,relu4_1` name and behave identically.
+
+**Model naming.** The backbone key concatenates each layer's short digit code (e.g.
+`vgg19_345_448_gram_k64_taper` for `relu3_1`+`relu4_1`+`relu5_1`) — the readout's own
+name (`gram_k64_taper`) doesn't change between single-layer and fused, since layer
+identity lives entirely in the backbone key.
+
+**Memory.** Each block halves the spatial grid area while only doubling channels, so a
+layer's `N × C` product (what drives the Gram readout's float64 tensor size) roughly
+halves at each deeper layer — summing all 5 canonical layers comes to only ~1.9x the
+memory of `relu1_1` alone, not 5x, and `relu1_1` alone is already what today's
+`VGG_BATCH_SIZE` override (`cuttle_patterns/cli/cmd_embed.py`) is sized against. Getting
+close to that ~1.9x figure in practice (not worse) requires processing one layer's Gram
+computation at a time and dropping it before moving to the next, which is exactly what
+`FusedGramReadout.partial_fit`/`__call__` do (`list.pop`, not just a loop over an
+already-materialized list — see their docstrings). The backbone's own raw (float32,
+pre-Gram) activations are comparatively cheap (~3 GiB total across all 5 layers at
+`VGG_BATCH_SIZE`) and are allowed to coexist momentarily as the shared trunk runs
+forward; only each layer's own *float64 Gram math* — the expensive part — is kept to
+one layer at a time.
+
+**Not implemented: per-layer `k`/`weights`, and a second reduction stage over the
+concatenated vector.** Fusing all 5 canonical layers at the default `k=64` concatenates
+to roughly 10k dimensions (`5 × 64·65/2`) — large enough that a second, fused-level PCA
+(fit once on the concatenated vectors, distinct from each layer's own within-frame
+channel projection) is worth considering once fusion has actual results to evaluate
+against; deliberately not built ahead of that, mirroring why `final_pca_dim` was cut
+from the single-layer Gram readout above. Lowering the shared `--gram-k` (e.g. to `28`,
+landing the fused total near a single layer's own ~2k) is the simpler alternative,
+tried first.

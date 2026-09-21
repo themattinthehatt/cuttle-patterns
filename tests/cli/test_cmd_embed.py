@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from cuttle_patterns.cli.cmd_embed import VGG_BATCH_SIZE, cmd_embed
+from cuttle_patterns.cli.cmd_embed import VGG_BATCH_SIZE, _parse_vgg_layers, cmd_embed, register
 from cuttle_patterns.embedders.base import Embedder
 
 
@@ -102,7 +102,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         device='cpu',
         gram_k=64,
         gram_weights='taper',
-        vgg_layer='relu3_1',
+        vgg_layer=['relu3_1'],
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -241,7 +241,7 @@ class TestCmdEmbed:
 
         monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.build_embedder', _fake_build_embedder)
         args = _make_args(
-            results_dir=results_dir, backbone='vgg19', resolution=None, vgg_layer='relu4_1',
+            results_dir=results_dir, backbone='vgg19', resolution=None, vgg_layer=['relu4_1'],
         )
 
         # Act
@@ -249,7 +249,7 @@ class TestCmdEmbed:
 
         # Assert -- --resolution wasn't passed, so it defaults to DEFAULT_VGG_RESOLUTION
         # (448) for backbone vgg19, not DEFAULT_RESOLUTION (224)
-        assert captured == {'resolution': 448, 'vgg_layer': 'relu4_1'}
+        assert captured == {'resolution': 448, 'vgg_layer': ['relu4_1']}
 
     def test_cmd_embed_forces_batch_size_for_vgg19(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -342,3 +342,40 @@ class TestCmdEmbed:
 
         # Act & Assert -- would raise if fit_readout were called
         cmd_embed(args)
+
+
+class TestParseVggLayers:
+    """Test the function _parse_vgg_layers."""
+
+    def test_parse_vgg_layers_single_value(self):
+        # Act & Assert
+        assert _parse_vgg_layers('relu3_1') == ['relu3_1']
+
+    def test_parse_vgg_layers_sorts_into_canonical_block_order(self):
+        # Act & Assert -- deliberately out of order
+        assert _parse_vgg_layers('relu5_1,relu1_1,relu3_1') == ['relu1_1', 'relu3_1', 'relu5_1']
+
+    def test_parse_vgg_layers_dedupes(self):
+        # Act & Assert
+        assert _parse_vgg_layers('relu3_1,relu3_1') == ['relu3_1']
+
+    def test_parse_vgg_layers_unknown_layer_raises(self):
+        # Act & Assert
+        with pytest.raises(argparse.ArgumentTypeError, match='unknown VGG layer'):
+            _parse_vgg_layers('relu3_1,not-a-real-layer')
+
+    def test_parse_vgg_layers_wired_into_the_real_parser(self):
+        # Arrange -- catches a wiring bug (e.g. forgetting type=) that a direct unit
+        # test of _parse_vgg_layers alone wouldn't
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        register(subparsers)
+
+        # Act
+        args = parser.parse_args(
+            ['embed', '--backbone', 'vgg19', '--readout', 'gram', '--vgg-layer',
+             'relu5_1,relu3_1'],
+        )
+
+        # Assert
+        assert args.vgg_layer == ['relu3_1', 'relu5_1']

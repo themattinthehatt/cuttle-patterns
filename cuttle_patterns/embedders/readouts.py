@@ -3,7 +3,9 @@
 `cls`, `meanpatch_uniform`, `meanpatch_taper`, and `gram` are implemented. `gram`
 deliberately omits the optional mean-block/shrinkage knobs described in
 `docs/implementation_notes/embedder.md`'s "Gram readout" section -- see its "Not
-implemented" note for why (cut deliberately, not forgotten).
+implemented" note for why (cut deliberately, not forgotten). `FusedGramReadout`
+concatenates several layers' `gram` descriptors for VGG-19 fusion -- see "VGG-19 Gram
+fusion" in the same doc.
 """
 
 import torch
@@ -301,6 +303,111 @@ class GramReadout(Readout):
             'gram_weights': self.weights,
             'gram_variance_retained': self.variance_retained,
         }
+
+
+class FusedGramReadout(Readout):
+    """Concatenation of independently-fit, per-layer `GramReadout` descriptors.
+
+    Pairs with `cuttle_patterns.embedders.vgg.MultiLayerVGGBackbone`, whose `forward`
+    returns one `TokenOutput` per selected layer (in canonical block order) instead of
+    a single one -- not registered in `READOUTS_BY_NAME`, since it's only reachable via
+    `cuttle_patterns.embed.build_embedder`'s VGG-fusion branch (more than one
+    `--vgg-layer` value with `--readout gram`), never selected by readout name alone.
+    Each layer gets its own `GramReadout` -- own channel projection, own fit -- and this
+    readout's output is their concatenation, in the same order. See "VGG-19 Gram
+    fusion" in `docs/implementation_notes/embedder.md`.
+
+    Processes one layer at a time and drops the just-finished layer's `TokenOutput`
+    (via `list.pop`, so the reference is gone, not just rebound) before moving to the
+    next, so peak memory reflects one layer's grid size and float64 Gram intermediates
+    at a time, not every selected layer's at once.
+    """
+
+    fit_passes = 1
+
+    def __init__(self, layer_dims: dict[str, int], k: int, weights: str):
+        """Build one `GramReadout` per layer, sharing `k`/`weights` across all of them.
+
+        Args:
+            layer_dims: `{layer_name: channel_dim}`, in the same canonical block order
+                as the paired `MultiLayerVGGBackbone.layers`/`forward`'s output list.
+            k: the channel projection's target dimensionality for every layer; must be
+                `<= min(layer_dims.values())` (`GramReadout`'s own per-layer check).
+            weights: `'uniform'` or `'taper'`, forwarded to every layer's `GramReadout`.
+
+        Raises:
+            ValueError: if `weights` isn't a valid choice, or `k` exceeds any layer's
+                channel dimension (raised by the first `GramReadout` it's too big for).
+        """
+        self.name = f'{GRAM_READOUT_NAME}_k{k}_{weights}'
+        self.layers = list(layer_dims)
+        self._sub_readouts = {
+            layer: GramReadout(dim=dim, k=k, weights=weights)
+            for layer, dim in layer_dims.items()
+        }
+
+    def partial_fit(self, tokens: list[TokenOutput], pass_idx: int) -> None:
+        """Fold each layer's fit-set batch into its own `GramReadout`, one at a time.
+
+        Args:
+            tokens: one fit-set batch's backbone output: a `TokenOutput` per layer, in
+                `self.layers`' order. Emptied in place (see class docstring).
+            pass_idx: always 0 -- `fit_passes == 1`.
+        """
+        for layer in self.layers:
+            self._sub_readouts[layer].partial_fit(tokens.pop(0), pass_idx)
+
+    def finalize_pass(self, pass_idx: int) -> None:
+        """Finalize every layer's `GramReadout`.
+
+        Args:
+            pass_idx: always 0 -- `fit_passes == 1`.
+        """
+        for sub_readout in self._sub_readouts.values():
+            sub_readout.finalize_pass(pass_idx)
+
+    def __call__(self, tokens: list[TokenOutput]) -> torch.Tensor:
+        """Compute and concatenate every layer's Gram descriptor, one at a time.
+
+        Args:
+            tokens: one batch's backbone output: a `TokenOutput` per layer, in
+                `self.layers`' order. Emptied in place (see class docstring).
+
+        Returns:
+            concatenated vectorized upper-triangle covariance square roots, shape
+            (B, dim).
+        """
+        vecs = [self._sub_readouts[layer](tokens.pop(0)) for layer in self.layers]
+        return torch.cat(vecs, dim=-1)
+
+    @property
+    def dim(self) -> int:
+        """Output vector dimensionality: the sum of every layer's own `dim`."""
+        return sum(sub_readout.dim for sub_readout in self._sub_readouts.values())
+
+    def state_dict(self) -> dict:
+        """Fitted state: every layer's own `GramReadout.state_dict`, keyed by layer."""
+        return {
+            layer: sub_readout.state_dict()
+            for layer, sub_readout in self._sub_readouts.items()
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """Restore fitted state written by `state_dict`.
+
+        Args:
+            state: a dict as returned by `state_dict`.
+        """
+        for layer, sub_readout in self._sub_readouts.items():
+            sub_readout.load_state_dict(state[layer])
+
+    def metadata(self) -> dict:
+        """Readout identity for provenance: shared hyperparameters, per-layer fit diagnostics."""
+        first = next(iter(self._sub_readouts.values()))
+        metadata = {'gram_k': first.k, 'gram_weights': first.weights, 'gram_layers': self.layers}
+        for layer, sub_readout in self._sub_readouts.items():
+            metadata[f'gram_variance_retained_{layer}'] = sub_readout.variance_retained
+        return metadata
 
 
 READOUTS_BY_NAME = {

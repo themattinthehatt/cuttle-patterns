@@ -12,6 +12,7 @@ from cuttle_patterns.embedders.vgg import (
     LAYER_TO_CODE,
     LAYER_TO_INDEX,
     LAYER_TO_STRIDE,
+    MultiLayerVGGBackbone,
     VGGBackbone,
 )
 
@@ -95,6 +96,102 @@ class TestVGGBackbone:
         assert len(backbone.model) == LAYER_TO_INDEX['relu1_1'] + 1
 
 
+class TestMultiLayerVGGBackbone:
+    """Test the class MultiLayerVGGBackbone."""
+
+    def test_multi_layer_vgg_backbone_empty_layers_raises(self):
+        # Act & Assert
+        with pytest.raises(ValueError, match='non-empty'):
+            MultiLayerVGGBackbone([], resolution=224, device=torch.device('cpu'))
+
+    def test_multi_layer_vgg_backbone_unknown_layer_raises_before_loading(self):
+        # Act & Assert
+        with pytest.raises(ValueError, match='unknown VGG layer'):
+            MultiLayerVGGBackbone(
+                ['relu3_1', 'not-a-real-layer'], resolution=224, device=torch.device('cpu'),
+            )
+
+    def test_multi_layer_vgg_backbone_bad_resolution_checks_deepest_layer(self):
+        # Act & Assert -- relu5_1's stride (16) governs, even though relu3_1 comes first
+        with pytest.raises(ValueError, match='downsampling stride'):
+            MultiLayerVGGBackbone(
+                ['relu3_1', 'relu5_1'], resolution=30, device=torch.device('cpu'),
+            )
+
+    def test_multi_layer_vgg_backbone_canonicalizes_order_and_dedupes(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        fake_features = _build_fake_vgg19_features()
+        monkeypatch.setattr(
+            'cuttle_patterns.embedders.vgg.vgg19',
+            lambda weights: SimpleNamespace(features=fake_features),
+        )
+
+        # Act -- deliberately out of order, with a duplicate
+        backbone = MultiLayerVGGBackbone(
+            ['relu5_1', 'relu3_1', 'relu3_1'], resolution=32, device=torch.device('cpu'),
+        )
+
+        # Assert
+        assert backbone.layers == ['relu3_1', 'relu5_1']
+        assert backbone.key == 'vgg19_35_32'
+
+    def test_multi_layer_vgg_backbone_forward_and_metadata(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        fake_features = _build_fake_vgg19_features()
+        monkeypatch.setattr(
+            'cuttle_patterns.embedders.vgg.vgg19',
+            lambda weights: SimpleNamespace(features=fake_features),
+        )
+        backbone = MultiLayerVGGBackbone(
+            ['relu2_1', 'relu4_1'], resolution=32, device=torch.device('cpu'),
+        )
+
+        # Act
+        x = backbone.preprocess(np.zeros((2, 10, 20, 3), dtype=np.uint8))
+        tokens = backbone.forward(x)
+        metadata = backbone.metadata()
+
+        # Assert -- relu2_1's stride is 2 (16x16 grid at 32px), relu4_1's is 8 (4x4);
+        # channel counts are the fake model's real 2, not LAYER_TO_CHANNELS'
+        assert len(tokens) == 2
+        assert tokens[0].cls is None and tokens[1].cls is None
+        assert tokens[0].patches.shape == (2, 256, 2)
+        assert tokens[0].grid_hw == (16, 16)
+        assert tokens[1].patches.shape == (2, 16, 2)
+        assert tokens[1].grid_hw == (4, 4)
+        assert metadata == {
+            'vgg_layers': ['relu2_1', 'relu4_1'],
+            'resolution': 32,
+            'backbone_hidden_size_by_layer': {'relu2_1': 128, 'relu4_1': 512},
+        }
+
+    def test_multi_layer_vgg_backbone_segments_partition_trunk_without_overlap(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        fake_features = _build_fake_vgg19_features()
+        monkeypatch.setattr(
+            'cuttle_patterns.embedders.vgg.vgg19',
+            lambda weights: SimpleNamespace(features=fake_features),
+        )
+
+        # Act
+        backbone = MultiLayerVGGBackbone(
+            ['relu1_1', 'relu3_1', 'relu5_1'], resolution=32, device=torch.device('cpu'),
+        )
+
+        # Assert -- segment lengths sum to exactly the deepest layer's index + 1 (every
+        # trunk position covered by exactly one segment), confirming the shared trunk is
+        # sliced into contiguous, non-overlapping pieces -- not each layer independently
+        # re-running from position 0, which would instead sum to a much larger total
+        total_ops = sum(len(segment) for segment in backbone.segments)
+        assert total_ops == LAYER_TO_INDEX['relu5_1'] + 1
+
+
 class TestLayerTables:
     """Test the module-level layer lookup tables."""
 
@@ -107,8 +204,8 @@ class TestLayerTables:
         assert set(LAYER_TO_INDEX) == {'relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1'}
 
     def test_layer_tables_code_is_the_layer_s_block_number(self):
-        # Assert -- single digits now, so future multi-layer fusion can concatenate them
-        # (e.g. '345' for relu3_1+relu4_1+relu5_1) into one readable model_name segment
+        # Assert -- single digits, so MultiLayerVGGBackbone can concatenate them (e.g.
+        # '345' for relu3_1+relu4_1+relu5_1) into one readable model_name segment
         assert LAYER_TO_CODE == {
             'relu1_1': '1',
             'relu2_1': '2',

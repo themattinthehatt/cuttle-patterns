@@ -41,6 +41,29 @@ DEFAULT_RESOLUTION = 224
 VGG_BATCH_SIZE = 32
 
 
+def _parse_vgg_layers(value: str) -> list[str]:
+    """argparse `type=` for `--vgg-layer`: comma-separated, canonically block-ordered.
+
+    Args:
+        value: one or more of `VGG_LAYER_CHOICES`' keys, comma-separated (e.g.
+            `'relu3_1'` or `'relu4_1,relu3_1'`).
+
+    Returns:
+        the requested layers, deduplicated and sorted into canonical block order
+        (shallowest first), regardless of input order.
+
+    Raises:
+        argparse.ArgumentTypeError: if any layer name is unknown.
+    """
+    layers = set(value.split(','))
+    unknown = layers - set(VGG_LAYER_CHOICES)
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f'unknown VGG layer(s): {sorted(unknown)}; choices: {list(VGG_LAYER_CHOICES)}'
+        )
+    return sorted(layers, key=lambda layer: VGG_LAYER_CHOICES[layer])
+
+
 def register(subparsers: argparse._SubParsersAction) -> None:
     """Register the embed subcommand.
 
@@ -69,9 +92,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=int,
         default=None,
         help='square input side length, in pixels; must be a multiple of 16 for a '
-        f'DINOv3 backbone, or of --vgg-layer\'s downsampling stride for {VGG_BACKBONE_NAME}; '
-        f'defaults to {DEFAULT_RESOLUTION} for DINOv3, {DEFAULT_VGG_RESOLUTION} for '
-        f'{VGG_BACKBONE_NAME}',
+        f'DINOv3 backbone, or of --vgg-layer\'s (deepest, if fused) downsampling stride '
+        f'for {VGG_BACKBONE_NAME}; defaults to {DEFAULT_RESOLUTION} for DINOv3, '
+        f'{DEFAULT_VGG_RESOLUTION} for {VGG_BACKBONE_NAME}',
     )
     parser.add_argument(
         '--readout',
@@ -82,9 +105,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         '--model-name',
         default=None,
-        help='defaults to {backbone key}_{readout name}, e.g. dinov3_vitb16_224_cls or '
-        'vgg19_3_448_gram_k64_taper; written to '
-        f'results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
+        help='defaults to {backbone key}_{readout name}, e.g. dinov3_vitb16_224_cls, '
+        'vgg19_3_448_gram_k64_taper, or (fused) vgg19_345_448_gram_k64_taper; written '
+        f'to results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
     )
     parser.add_argument(
         '--input-dir',
@@ -128,9 +151,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         '--vgg-layer',
-        choices=list(VGG_LAYER_CHOICES),
-        default=DEFAULT_VGG_LAYER,
-        help=f'VGG-19 layer for --backbone {VGG_BACKBONE_NAME}; ignored otherwise',
+        type=_parse_vgg_layers,
+        default=[DEFAULT_VGG_LAYER],
+        help=f'VGG-19 layer(s) for --backbone {VGG_BACKBONE_NAME} (choices: '
+        f'{",".join(VGG_LAYER_CHOICES)}); comma-separated for Gram fusion (e.g. '
+        f'relu3_1,relu4_1,relu5_1), only supported with --readout {GRAM_READOUT_NAME}; '
+        'ignored otherwise',
     )
     parser.set_defaults(handler=cmd_embed)
 

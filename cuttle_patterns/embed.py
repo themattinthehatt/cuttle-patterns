@@ -25,9 +25,14 @@ from tqdm import tqdm
 
 from cuttle_patterns.embedders.base import Embedder
 from cuttle_patterns.embedders.dinov3 import ARCH_TO_HF_ID, DINOv3Backbone
-from cuttle_patterns.embedders.readouts import CLS_READOUT_NAME, READOUTS_BY_NAME
+from cuttle_patterns.embedders.readouts import (
+    CLS_READOUT_NAME,
+    GRAM_READOUT_NAME,
+    READOUTS_BY_NAME,
+    FusedGramReadout,
+)
 from cuttle_patterns.embedders.vgg import BACKBONE_NAME as VGG_BACKBONE_NAME
-from cuttle_patterns.embedders.vgg import VGGBackbone
+from cuttle_patterns.embedders.vgg import MultiLayerVGGBackbone, VGGBackbone
 from cuttle_patterns.latents import FRAME_FILENAME_PATTERN, parse_video_name
 
 DEFAULT_BATCH_SIZE = 128
@@ -75,37 +80,38 @@ def build_embedder(
     resolution: int,
     readout_name: str,
     device: torch.device,
-    vgg_layer: str | None = None,
+    vgg_layer: list[str] | None = None,
     readout_kwargs: dict | None = None,
 ) -> Embedder:
     """Build the one embedder a `cuttle embed` run uses.
 
-    Validates `readout_name` (and the VGG/CLS incompatibility below) before loading any
-    weights, so an invalid combination fails fast rather than after a slow
-    (network-dependent) backbone load.
+    Validates `readout_name` (and the VGG/CLS and VGG-fusion incompatibilities below)
+    before loading any weights, so an invalid combination fails fast rather than after a
+    slow (network-dependent) backbone load.
 
     Args:
         backbone_arch: one of `cuttle_patterns.embedders.dinov3.ARCH_TO_HF_ID`'s keys,
             or `cuttle_patterns.embedders.vgg.BACKBONE_NAME` (`'vgg19'`).
         resolution: square input side length, in pixels; must be a multiple of 16 for a
-            DINOv3 backbone, or of `vgg_layer`'s downsampling stride for `vgg19`.
+            DINOv3 backbone, or of `vgg_layer`'s downsampling stride for `vgg19` (the
+            deepest requested layer's, if more than one).
         readout_name: one of `cuttle_patterns.embedders.readouts.READOUTS_BY_NAME`'s
             keys.
         device: device to load the backbone onto.
-        vgg_layer: one of `cuttle_patterns.embedders.vgg.LAYER_TO_INDEX`'s keys;
+        vgg_layer: one or more of `cuttle_patterns.embedders.vgg.LAYER_TO_INDEX`'s keys;
             ignored unless `backbone_arch == 'vgg19'`, where it defaults to
-            `DEFAULT_VGG_LAYER`.
-        readout_kwargs: extra keyword arguments forwarded to the readout's constructor
-            beyond `dim` (e.g. `{'k': 64, 'weights': 'taper'}` for `gram`).
+            `[DEFAULT_VGG_LAYER]`. More than one value (Gram fusion) requires
+            `readout_name == 'gram'`.
 
     Returns:
         the composed embedder.
 
     Raises:
-        ValueError: if `backbone_arch`, `readout_name`, or `vgg_layer` is unrecognized;
-            if `resolution` doesn't divide evenly for the chosen backbone; or if
-            `readout_name == 'cls'` with `backbone_arch == 'vgg19'`, which has no
-            CLS-token equivalent.
+        ValueError: if `backbone_arch`, `readout_name`, or a `vgg_layer` entry is
+            unrecognized; if `resolution` doesn't divide evenly for the chosen backbone;
+            if `readout_name == 'cls'` with `backbone_arch == 'vgg19'`, which has no
+            CLS-token equivalent; or if `vgg_layer` has more than one entry with
+            `readout_name != 'gram'`.
     """
     if readout_name not in READOUTS_BY_NAME:
         raise ValueError(
@@ -113,12 +119,24 @@ def build_embedder(
         )
 
     if backbone_arch == VGG_BACKBONE_NAME:
+        layers = vgg_layer if vgg_layer is not None else [DEFAULT_VGG_LAYER]
+        if len(layers) > 1:
+            if readout_name != GRAM_READOUT_NAME:
+                raise ValueError(
+                    f'--vgg-layer fusion (more than one layer) requires --readout '
+                    f'{GRAM_READOUT_NAME}, got --readout {readout_name!r}'
+                )
+            backbone = MultiLayerVGGBackbone(layers, resolution, device)
+            readout = FusedGramReadout(
+                layer_dims=backbone.channels_by_layer, **(readout_kwargs or {}),
+            )
+            return Embedder(backbone, readout)
         if readout_name == CLS_READOUT_NAME:
             raise ValueError(
                 f'{VGG_BACKBONE_NAME} has no CLS token; --readout {CLS_READOUT_NAME} '
                 'is unsupported'
             )
-        backbone = VGGBackbone(vgg_layer or DEFAULT_VGG_LAYER, resolution, device)
+        backbone = VGGBackbone(layers[0], resolution, device)
     elif backbone_arch in ARCH_TO_HF_ID:
         backbone = DINOv3Backbone(backbone_arch, resolution, device)
     else:

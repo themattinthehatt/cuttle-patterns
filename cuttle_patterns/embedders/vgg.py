@@ -1,13 +1,15 @@
-"""VGG-19 backbone: torchvision's pretrained conv net, truncated at a named layer.
+"""VGG-19 backbones: torchvision's pretrained conv net, at one or several named layers.
 
 Unlike the DINOv3 ViT, VGG-19 has no CLS token -- it returns one conv feature map,
-which this backbone flattens into a `TokenOutput` with `cls=None` (see
-`cuttle_patterns.embedders.base.TokenOutput`). Only the canonical 5 Gatys et al.
-texture/style layers are supported -- see "VGG-19 Gram" in
+which `VGGBackbone` flattens into a `TokenOutput` with `cls=None` (see
+`cuttle_patterns.embedders.base.TokenOutput`); `MultiLayerVGGBackbone` returns several,
+one per requested layer, for Gram fusion. Only the canonical 5 Gatys et al.
+texture/style layers are supported -- see "VGG-19 Gram" and "VGG-19 Gram fusion" in
 `docs/implementation_notes/embedder.md`.
 """
 
 import torch
+from torch import nn
 from torchvision.models import VGG19_Weights, vgg19
 
 from cuttle_patterns.embedders.base import Backbone, Frames, TokenOutput
@@ -136,4 +138,113 @@ class VGGBackbone(Backbone):
             'vgg_layer': self.layer,
             'resolution': self.resolution,
             'backbone_hidden_size': self.embed_dim,
+        }
+
+
+class MultiLayerVGGBackbone(Backbone):
+    """Wraps a pretrained torchvision VGG-19, extracting several named layers at once.
+
+    Pairs with `cuttle_patterns.embedders.readouts.FusedGramReadout` (Gram fusion) --
+    see "VGG-19 Gram fusion" in `docs/implementation_notes/embedder.md`. Unlike
+    `VGGBackbone`, `forward` returns a `list[TokenOutput]`, one per requested layer in
+    canonical block order, not a single `TokenOutput` -- only a readout built to expect
+    that (`FusedGramReadout`) can consume it.
+
+    Runs VGG-19's shared trunk exactly once per batch, not once per layer, by slicing
+    `features` into contiguous segments between consecutive requested layers and
+    chaining them: each layer's raw activation is the input to the next segment, so it's
+    never held in a separate list alongside the others -- only the *sub-readout's* own
+    per-layer float64 Gram computation (the expensive part) needs to avoid that, which is
+    `FusedGramReadout`'s responsibility, not this backbone's.
+    """
+
+    def __init__(self, layers: list[str], resolution: int, device: torch.device):
+        """Load VGG-19 and slice it at each of `layers`.
+
+        Args:
+            layers: one or more of `LAYER_TO_INDEX`'s keys, in any order (canonicalized
+                to block order and deduplicated below).
+            resolution: square input side length, in pixels; must be a multiple of the
+                *deepest* requested layer's downsampling stride -- automatically a
+                multiple of every shallower requested layer's stride too, since each is
+                a power of 2 dividing the next.
+            device: device to load the model onto.
+
+        Raises:
+            ValueError: if `layers` is empty, contains an unknown layer name, or
+                `resolution` isn't a multiple of the deepest layer's stride.
+        """
+        if not layers:
+            raise ValueError('layers must be non-empty')
+        unknown = set(layers) - set(LAYER_TO_INDEX)
+        if unknown:
+            raise ValueError(
+                f'unknown VGG layer(s): {sorted(unknown)}; choices: {list(LAYER_TO_INDEX)}'
+            )
+
+        self.layers = sorted(set(layers), key=lambda layer: LAYER_TO_INDEX[layer])
+        stride = LAYER_TO_STRIDE[self.layers[-1]]
+        if resolution % stride != 0:
+            raise ValueError(
+                f'resolution must be a multiple of {self.layers[-1]}\'s downsampling '
+                f'stride ({stride}), got {resolution}'
+            )
+
+        self.resolution = resolution
+        self.device = device
+        codes = ''.join(LAYER_TO_CODE[layer] for layer in self.layers)
+        self.key = f'{BACKBONE_NAME}_{codes}_{resolution}'
+        self.channels_by_layer = {layer: LAYER_TO_CHANNELS[layer] for layer in self.layers}
+        self.grid_hw_by_layer = {
+            layer: (resolution // LAYER_TO_STRIDE[layer], resolution // LAYER_TO_STRIDE[layer])
+            for layer in self.layers
+        }
+
+        full_model = vgg19(weights=VGG19_Weights.IMAGENET1K_V1)
+        segments = []
+        start = 0
+        for layer in self.layers:
+            segment = full_model.features[start:LAYER_TO_INDEX[layer] + 1]
+            segment.eval()
+            segment.to(device)
+            segments.append(segment)
+            start = LAYER_TO_INDEX[layer] + 1
+        self.segments = nn.ModuleList(segments)
+
+    def preprocess(self, frames: Frames) -> torch.Tensor:
+        """Resize/normalize raw crops and move them to this backbone's device.
+
+        Args:
+            frames: uint8 RGB crops, shape (B, H, W, 3).
+
+        Returns:
+            float32 tensor, shape (B, 3, resolution, resolution), on `self.device`.
+        """
+        x = resize_and_normalize(frames, self.resolution)
+        return torch.from_numpy(x).to(self.device)
+
+    def forward(self, x: torch.Tensor) -> list[TokenOutput]:
+        """Run each layer's segment in sequence, chaining the running activation.
+
+        Args:
+            x: preprocessed input, shape (B, 3, resolution, resolution).
+
+        Returns:
+            one `TokenOutput` per requested layer, in `self.layers`' canonical order;
+            `cls` is `None` on each, same as `VGGBackbone`.
+        """
+        activation = x
+        outputs = []
+        for layer, segment in zip(self.layers, self.segments, strict=True):
+            activation = segment(activation)
+            patches = activation.flatten(2).transpose(1, 2)  # (B, H * W, C), row-major
+            outputs.append(TokenOutput(patches=patches, grid_hw=self.grid_hw_by_layer[layer]))
+        return outputs
+
+    def metadata(self) -> dict:
+        """Backbone identity for provenance, written into `cuttle embed`'s config.yaml."""
+        return {
+            'vgg_layers': self.layers,
+            'resolution': self.resolution,
+            'backbone_hidden_size_by_layer': self.channels_by_layer,
         }
