@@ -44,9 +44,8 @@ results_dir: /path/to/cuttle/results
 
 ## Pipeline: preprocessing
 
-The steps below run in order after `cuttle setup`; headers are unnumbered since a new
-step can be inserted at any point. Every subcommand reads `data_dir`/`results_dir` from
-the config file by default; override either with `--data-dir`/`--results-dir` if needed.
+The steps below run in order after `cuttle setup`. Every subcommand reads `data_dir`/`results_dir` 
+from the config file by default; override either with `--data-dir`/`--results-dir` if needed.
 Output paths mentioned below are relative to `results_dir` — see
 `cuttle_patterns/paths.py` for the exact on-disk layout of every pipeline stage's output.
 
@@ -87,13 +86,12 @@ It runs in one of two modes, chosen automatically per video:
 
 Either mode can still leave the rectangle jittering frame-to-frame during rapid body
 motion (fin beats in particular); the corner trajectory is smoothed to damp this, via
-either a Gaussian filter (`--smoothing-sigma`, standard deviation in frames, 2.0 if
-given with no value — **the default if neither flag is given**) or a centered rolling
-median (`--smoothing-window`, frames, 9 if given with no value; 1 disables smoothing) —
-the two are mutually exclusive. The Gaussian tracks continuous, quasi-periodic jitter
-(e.g. fin beats) more smoothly since it blends the whole window rather than snapping to
-one observed value; the median is more robust to an occasional single-frame garbage
-detection, since it rejects rather than blends it in.
+either a Gaussian filter (`--smoothing-sigma`) or a centered rolling median
+(`--smoothing-window`) — mutually exclusive, see `--help` for defaults. The Gaussian
+tracks continuous, quasi-periodic jitter (e.g. fin beats) more smoothly since it blends
+the whole window rather than snapping to one observed value; the median is more robust
+to an occasional single-frame garbage detection, since it rejects rather than blends it
+in.
 
 To process one video at a time (e.g. while iterating on `--thresh`/`--aspect`), use
 `--video-path`, optionally paired with an explicit `--pose-path`:
@@ -128,7 +126,7 @@ cuttle overlay
 
 Writes an `_overlay.mp4` alongside the aligned crop under `rectangles/`, H.264-encoded
 (via `ffmpeg`) since these are full raw-resolution videos and can otherwise get large;
-tune size vs. quality with `--crf` (lower is higher quality/larger file, default 28). As
+tune size vs. quality with `--crf` (lower is higher quality/larger file). As
 with `cuttle inscribe`, pass `--skip-existing` to leave an already-written overlay video
 alone rather than re-encoding it.
 
@@ -166,8 +164,8 @@ For each video, writes every selected anchor frame plus its immediate neighbors
 (`session_id`, `fish_id`, `frame_idx`, `image_path`, one row per selected anchor frame)
 under `manifests/`.
 
-`-n`/`--frames-per-video` caps the number of anchor frames selected per video (default 1000) — 
-a maximum, not an exact count: a video with fewer surviving candidate frames than
+`-n`/`--frames-per-video` caps the number of anchor frames selected per video — a
+maximum, not an exact count: a video with fewer surviving candidate frames than
 that just uses all of them, with a printed warning. As with the earlier steps,
 `--skip-existing` skips a video whose `beast_frames/{video_name}/selected_frames.csv`
 already exists, and `--video-path`/`--pose-path` process a single video against an
@@ -246,9 +244,9 @@ cuttle reduce --model-name resnet-ae-v1
 Reads every latent `cuttle predict --save-latents` wrote for the model
 (`--predictions-name` defaults to `beast_frames`) and writes one row per frame —
 `umap_x`, `umap_y`, plus per-frame metadata — under the model's `reduce/` directory.
-`--n-neighbors`/`--min-dist` (default 15/0.1) are encoded into the output filename so
-different sweeps don't overwrite each other; `--metric`/`--random-state` (default
-`euclidean`/42) are also exposed but aren't part of the filename.
+`--n-neighbors`/`--min-dist` are encoded into the output filename so different sweeps
+don't overwrite each other; `--metric`/`--random-state` are also exposed but aren't
+part of the filename — see `--help` for defaults.
 
 ### `cuttle cluster`
 
@@ -264,8 +262,8 @@ Reads the same latents `cuttle reduce` does (`--predictions-name`, default
 `beast_frames`, selects which predicted frame set) and writes one row per frame —
 `cluster`, plus per-frame metadata — under the model's `clusters/` directory.
 `--n-clusters` is required (no sensible universal default) and is encoded into the
-output filename so different sweeps don't overwrite each other; `--random-state`
-(default 42) is also exposed but isn't part of the filename.
+output filename so different sweeps don't overwrite each other; `--random-state` is
+also exposed but isn't part of the filename.
 
 ### `cuttle clusterview`
 
@@ -278,9 +276,9 @@ cuttle clusterview --model-name resnet-ae-v1 --cluster-run kmeans_k10
 ```
 
 Reads the parquet `cuttle cluster` wrote for `--cluster-run` and writes one PNG per
-cluster alongside it. `--n-frames` (default 12) sets how many member frames are sampled
-per cluster; `--n-cols` (default 4) sets the grid width, with row count derived from
-`--n-frames`; `--seed` (default 0) controls the per-cluster sampling.
+cluster alongside it. `--n-frames` sets how many member frames are sampled per cluster;
+`--n-cols` sets the grid width, with row count derived from `--n-frames`; `--seed`
+controls the per-cluster sampling — see `--help` for defaults.
 
 ### `cuttle serve`
 
@@ -294,5 +292,5 @@ cluster/classification attributes. The Model dropdown lists every entry under
 cuttle serve
 ```
 
-`--port` (default 5006) sets the port the app and its frame-image route are served on;
-`--no-show` skips auto-opening a browser tab.
+`--port` sets the port the app and its frame-image route are served on; `--no-show`
+skips auto-opening a browser tab.

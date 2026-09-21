@@ -332,8 +332,8 @@ exposed as `cuttle extract`:
    `candidate_idxs` — upstream's only subsetting knob, a contiguous fractional
    `frame_range`, can't express an arbitrary/non-contiguous allowed-frame set, so a true
    restriction isn't possible by calling that function directly. `frames_per_video`
-   (`-n`, default 1000) is a maximum: a video with fewer surviving candidates just uses
-   all of them, with a printed warning, rather than raising.
+   (`-n`) is a maximum: a video with fewer surviving candidates just uses all of them,
+   with a printed warning, rather than raising.
 
 `beast.preprocess.extraction.export_frames` and `beast.video.compute_video_motion_energy`
 are reused unmodified for exporting frames (with ±1 context frames, matching BEAST's own
@@ -416,30 +416,20 @@ an external reference point for the [embedding eval harness](../cuttle_patterns/
 identity, compared to the from-scratch BEAST/MSPS-VAE backbones above?
 
 `cuttle embed` (`cuttle_patterns/cli/cmd_embed.py`, delegating to `cuttle_patterns/embed.py`
-and the `cuttle_patterns/embedders/` package) runs a frozen DINOv3 ViT
-(`facebook/dinov3-{vits16,vitb16,vitl16}-pretrain-lvd1689m`, via Hugging Face
-`transformers`) over `results_dir/beast_frames` and writes a single combined embeddings
-array + row-aligned manifest, duck-typed as a BEAST model directory — exactly the
-precedent set by the Phase 7 "Supervised classification overlay" entry below — so
+and the `cuttle_patterns/embedders/` package) runs a frozen DINOv3 ViT over
+`results_dir/beast_frames` and writes a single combined embeddings array + row-aligned
+manifest, duck-typed as a BEAST model directory — exactly the precedent set by the
+Phase 7 "Supervised classification overlay" entry below — so
 `cuttle reduce`/`cuttle cluster`/`cuttle serve` need no embedder-specific code. Unlike
 `cuttle predict --save-latents` (one `.npy` per frame), this writes at most a few files
 total per run, since writing millions of tiny files is extremely slow on the external
 hard drive `results_dir` currently lives on.
 
-Four readouts turn the backbone's patch/CLS tokens into a fixed-length vector:
-- `cls` — the CLS token as-is.
-- `meanpatch_uniform`/`meanpatch_taper` — mean of the patch tokens, optionally
-  down-weighting border/corner patches with a raised-cosine radial taper (the same one
-  used for the masked MSPS-VAE's spatial loss weighting).
-- `gram` — a spatially weighted, channel-projected covariance ("Gram matrix") texture
-  descriptor: which feature directions co-vary across positions within a frame,
-  discarding *where* they occur. Requires a one-time fit (a channel projection, fit on a
-  sampled subset of frames) before it can embed anything; `cuttle embed` runs this
-  automatically.
-
-Full design (backbone/readout protocol, DINOv3 specifics, the Gram readout's math and
-design caveats, and the VGG-19 backbone/fusion built as a second backbone on the same
-protocol) in [embedder.md](implementation_notes/embedder.md). Tests: `tests/embedders/`,
+Several readouts turn the backbone's patch/CLS tokens into a fixed-length vector — a
+CLS-token readout, two mean-patch variants, and a Gram-matrix texture descriptor. Full
+design (backbone/readout protocol, exact DINOv3 model ids, the readouts' math and design
+caveats, and the VGG-19 backbone/fusion built as a second backbone on the same protocol)
+in [embedder.md](implementation_notes/embedder.md). Tests: `tests/embedders/`,
 `tests/test_embed.py`, `tests/cli/test_cmd_embed.py`.
 
 ---

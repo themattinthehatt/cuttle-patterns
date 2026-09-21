@@ -8,6 +8,8 @@ texture/style layers are supported -- see "VGG-19 Gram" and "VGG-19 Gram fusion"
 `docs/implementation_notes/embedder.md`.
 """
 
+from dataclasses import dataclass
+
 import torch
 from torch import nn
 from torchvision.models import VGG19_Weights, vgg19
@@ -17,47 +19,43 @@ from cuttle_patterns.embedders.dinov3 import resize_and_normalize
 
 BACKBONE_NAME = 'vgg19'
 
-# torchvision vgg19().features index of the block-first ReLU for each of Gatys et al.'s
-# canonical 5 texture/style layers (A Neural Algorithm of Artistic Style, CVPR 2016) --
-# confirmed by listing vgg19().features directly, not assumed
-LAYER_TO_INDEX = {
-    'relu1_1': 1,
-    'relu2_1': 6,
-    'relu3_1': 11,
-    'relu4_1': 20,
-    'relu5_1': 29,
-}
 
-# this layer's output channel count
-LAYER_TO_CHANNELS = {
-    'relu1_1': 64,
-    'relu2_1': 128,
-    'relu3_1': 256,
-    'relu4_1': 512,
-    'relu5_1': 512,
-}
+@dataclass(frozen=True)
+class VGGLayerInfo:
+    """Static facts about one of the 5 canonical Gatys et al. VGG-19 layers.
 
-# downsampling factor from input resolution to this layer's spatial grid: one maxpool
-# per block boundary crossed before it (relu1_1 crosses none, relu5_1 crosses four)
-LAYER_TO_STRIDE = {
-    'relu1_1': 1,
-    'relu2_1': 2,
-    'relu3_1': 4,
-    'relu4_1': 8,
-    'relu5_1': 16,
-}
+    One dict keyed by layer name, rather than four parallel ones, so a layer's facts
+    can't drift out of sync with each other -- every lookup goes through the same key.
+    """
 
-# short digit alias for the backbone key/model name -- keeps model_name readable (e.g.
-# vgg19_3_448_gram_k64_taper, not vgg19_relu3_1_448_gram_k64_taper) and sets up
-# multi-layer fusion's naming for later: concatenating codes (e.g. '345' for
-# relu3_1+relu4_1+relu5_1) once fusion is implemented. `metadata()` still reports the
-# full layer name for provenance -- only the directory name is shortened.
-LAYER_TO_CODE = {
-    'relu1_1': '1',
-    'relu2_1': '2',
-    'relu3_1': '3',
-    'relu4_1': '4',
-    'relu5_1': '5',
+    index: int
+    """`vgg19().features` index of this layer's block-first ReLU -- confirmed by
+    listing `vgg19().features` directly, not assumed."""
+
+    channels: int
+    """This layer's output channel count."""
+
+    stride: int
+    """Downsampling factor from input resolution to this layer's spatial grid: one
+    maxpool per block boundary crossed before it (relu1_1 crosses none, relu5_1 crosses
+    four)."""
+
+    code: str
+    """Short digit alias for the backbone key/model name -- keeps model_name readable
+    (e.g. vgg19_3_448_gram_k64_taper, not vgg19_relu3_1_448_gram_k64_taper). Multi-layer
+    fusion concatenates these codes in block order (e.g. '345' for
+    relu3_1+relu4_1+relu5_1). `metadata()` still reports the full layer name for
+    provenance -- only the directory name is shortened."""
+
+
+# Gatys et al.'s canonical 5 texture/style layers (A Neural Algorithm of Artistic
+# Style, CVPR 2016), one ReLU per block
+VGG_LAYERS: dict[str, VGGLayerInfo] = {
+    'relu1_1': VGGLayerInfo(index=1, channels=64, stride=1, code='1'),
+    'relu2_1': VGGLayerInfo(index=6, channels=128, stride=2, code='2'),
+    'relu3_1': VGGLayerInfo(index=11, channels=256, stride=4, code='3'),
+    'relu4_1': VGGLayerInfo(index=20, channels=512, stride=8, code='4'),
+    'relu5_1': VGGLayerInfo(index=29, channels=512, stride=16, code='5'),
 }
 
 
@@ -68,34 +66,33 @@ class VGGBackbone(Backbone):
         """Load VGG-19 and truncate it at `layer`.
 
         Args:
-            layer: one of `LAYER_TO_INDEX`'s keys.
+            layer: one of `VGG_LAYERS`' keys.
             resolution: square input side length, in pixels; must be a multiple of
-                `layer`'s downsampling stride (`LAYER_TO_STRIDE`), so its output grid
-                divides evenly.
+                `layer`'s downsampling stride, so its output grid divides evenly.
             device: device to load the model onto.
 
         Raises:
             ValueError: if `layer` is unknown, or `resolution` isn't a multiple of
                 `layer`'s stride.
         """
-        if layer not in LAYER_TO_INDEX:
-            raise ValueError(f'unknown VGG layer: {layer!r}; choices: {list(LAYER_TO_INDEX)}')
-        stride = LAYER_TO_STRIDE[layer]
-        if resolution % stride != 0:
+        if layer not in VGG_LAYERS:
+            raise ValueError(f'unknown VGG layer: {layer!r}; choices: {list(VGG_LAYERS)}')
+        info = VGG_LAYERS[layer]
+        if resolution % info.stride != 0:
             raise ValueError(
                 f'resolution must be a multiple of {layer}\'s downsampling stride '
-                f'({stride}), got {resolution}'
+                f'({info.stride}), got {resolution}'
             )
 
         self.layer = layer
         self.resolution = resolution
         self.device = device
-        self.key = f'{BACKBONE_NAME}_{LAYER_TO_CODE[layer]}_{resolution}'
-        self.embed_dim = LAYER_TO_CHANNELS[layer]
-        self.grid_hw = (resolution // stride, resolution // stride)
+        self.key = f'{BACKBONE_NAME}_{info.code}_{resolution}'
+        self.embed_dim = info.channels
+        self.grid_hw = (resolution // info.stride, resolution // info.stride)
 
         full_model = vgg19(weights=VGG19_Weights.IMAGENET1K_V1)
-        self.model = full_model.features[:LAYER_TO_INDEX[layer] + 1]
+        self.model = full_model.features[:info.index + 1]
         self.model.eval()
         self.model.to(device)
 
@@ -162,8 +159,8 @@ class MultiLayerVGGBackbone(Backbone):
         """Load VGG-19 and slice it at each of `layers`.
 
         Args:
-            layers: one or more of `LAYER_TO_INDEX`'s keys, in any order (canonicalized
-                to block order and deduplicated below).
+            layers: one or more of `VGG_LAYERS`' keys, in any order (canonicalized to
+                block order and deduplicated below).
             resolution: square input side length, in pixels; must be a multiple of the
                 *deepest* requested layer's downsampling stride -- automatically a
                 multiple of every shallower requested layer's stride too, since each is
@@ -176,27 +173,27 @@ class MultiLayerVGGBackbone(Backbone):
         """
         if not layers:
             raise ValueError('layers must be non-empty')
-        unknown = set(layers) - set(LAYER_TO_INDEX)
+        unknown = set(layers) - set(VGG_LAYERS)
         if unknown:
             raise ValueError(
-                f'unknown VGG layer(s): {sorted(unknown)}; choices: {list(LAYER_TO_INDEX)}'
+                f'unknown VGG layer(s): {sorted(unknown)}; choices: {list(VGG_LAYERS)}'
             )
 
-        self.layers = sorted(set(layers), key=lambda layer: LAYER_TO_INDEX[layer])
-        stride = LAYER_TO_STRIDE[self.layers[-1]]
-        if resolution % stride != 0:
+        self.layers = sorted(set(layers), key=lambda layer: VGG_LAYERS[layer].index)
+        deepest = VGG_LAYERS[self.layers[-1]]
+        if resolution % deepest.stride != 0:
             raise ValueError(
                 f'resolution must be a multiple of {self.layers[-1]}\'s downsampling '
-                f'stride ({stride}), got {resolution}'
+                f'stride ({deepest.stride}), got {resolution}'
             )
 
         self.resolution = resolution
         self.device = device
-        codes = ''.join(LAYER_TO_CODE[layer] for layer in self.layers)
+        codes = ''.join(VGG_LAYERS[layer].code for layer in self.layers)
         self.key = f'{BACKBONE_NAME}_{codes}_{resolution}'
-        self.channels_by_layer = {layer: LAYER_TO_CHANNELS[layer] for layer in self.layers}
+        self.channels_by_layer = {layer: VGG_LAYERS[layer].channels for layer in self.layers}
         self.grid_hw_by_layer = {
-            layer: (resolution // LAYER_TO_STRIDE[layer], resolution // LAYER_TO_STRIDE[layer])
+            layer: (resolution // VGG_LAYERS[layer].stride, resolution // VGG_LAYERS[layer].stride)
             for layer in self.layers
         }
 
@@ -204,11 +201,12 @@ class MultiLayerVGGBackbone(Backbone):
         segments = []
         start = 0
         for layer in self.layers:
-            segment = full_model.features[start:LAYER_TO_INDEX[layer] + 1]
+            layer_index = VGG_LAYERS[layer].index
+            segment = full_model.features[start:layer_index + 1]
             segment.eval()
             segment.to(device)
             segments.append(segment)
-            start = LAYER_TO_INDEX[layer] + 1
+            start = layer_index + 1
         self.segments = nn.ModuleList(segments)
 
     def preprocess(self, frames: Frames) -> torch.Tensor:

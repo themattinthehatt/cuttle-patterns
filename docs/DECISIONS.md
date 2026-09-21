@@ -16,16 +16,13 @@ description may be trimmed in favor of such a pointer.
 **Status:** decided, implemented
 
 **Decision:** Add a new pipeline stage, `cuttle embed`, that runs a frozen pretrained
-DINOv3 ViT (`facebook/dinov3-{vits16,vitb16,vitl16}-pretrain-lvd1689m`, via Hugging Face
-`transformers`) over exported frames and writes a single combined `(N, D)` embeddings
-array plus a row-aligned manifest — not one `.npy` per frame, the convention
-`cuttle predict --save-latents` uses. Four readouts turn the backbone's tokens into a
-vector: `cls` (the CLS token), `meanpatch_uniform`/`meanpatch_taper` (mean of patch
-tokens, optionally down-weighting border/corner patches with a raised-cosine taper), and
-`gram` (a spatially weighted, channel-projected covariance texture descriptor). Output is
-duck-typed as a BEAST model directory, the same precedent as the "Classifier embeddings"
-entry below, so `cuttle reduce`/`cuttle cluster`/`cuttle serve` need no embedder-specific
-code. Full design in
+DINOv3 ViT over exported frames and writes a single combined `(N, D)` embeddings array
+plus a row-aligned manifest — not one `.npy` per frame, the convention
+`cuttle predict --save-latents` uses. Several readouts turn the backbone's tokens into a
+vector (CLS token, mean-patch, Gram-matrix texture). Output is duck-typed as a BEAST
+model directory, the same precedent as the "Classifier embeddings" entry below, so
+`cuttle reduce`/`cuttle cluster`/`cuttle serve` need no embedder-specific code. Full
+design (exact model ids, readout math) in
 [embedder.md](implementation_notes/embedder.md).
 
 **Why:** Feeds Tier B of the [embedding eval harness](../cuttle_patterns/eval/README.md)
@@ -428,14 +425,14 @@ either column is numeric.
 **Status:** decided, implemented
 
 **Decision:** Smooth the final per-frame rectangle corner trajectory with either a
-Gaussian filter (`align.smooth_corners_gaussian`, `--smoothing-sigma`, standard deviation
-in frames, 2.0 if given with no value — **the default when neither flag is given**) or a
-centered rolling median (`align.smooth_corners`, `--smoothing-window`, 9 frames if given
-with no value; 1 disables smoothing), rather than fixing this upstream in mask/pose
-geometry. The two CLI flags are symmetric (`nargs='?'` + `const` on both, so either can
-be typed bare for its recommended value or with an explicit number) and mutually
-exclusive — an argparse mutually-exclusive group on the CLI, a `ValueError` in
-`align_video` if both are passed as non-None.
+Gaussian filter (`align.smooth_corners_gaussian`, `--smoothing-sigma` — the default when
+neither flag is given) or a centered rolling median (`align.smooth_corners`,
+`--smoothing-window`; 1 disables smoothing), rather than fixing this upstream in
+mask/pose geometry (see `--help` for the actual default values). The two CLI flags are
+symmetric (`nargs='?'` + `const` on both, so either can be typed bare for its
+recommended value or with an explicit number) and mutually exclusive — an argparse
+mutually-exclusive group on the CLI, a `ValueError` in `align_video` if both are passed
+as non-None.
 
 **Why:** QC on session-01/cuttle-01 (1:35-1:40) showed the rectangle jittering
 frame-to-frame — well above baseline — driven by fin-beat oscillation rather than real

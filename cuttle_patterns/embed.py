@@ -98,7 +98,7 @@ def build_embedder(
         readout_name: one of `cuttle_patterns.embedders.readouts.READOUTS_BY_NAME`'s
             keys.
         device: device to load the backbone onto.
-        vgg_layer: one or more of `cuttle_patterns.embedders.vgg.LAYER_TO_INDEX`'s keys;
+        vgg_layer: one or more of `cuttle_patterns.embedders.vgg.VGG_LAYERS`' keys;
             ignored unless `backbone_arch == 'vgg19'`, where it defaults to
             `[DEFAULT_VGG_LAYER]`. More than one value (Gram fusion) requires
             `readout_name == 'gram'`.

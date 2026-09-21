@@ -29,7 +29,7 @@ from cuttle_patterns.embedders.readouts import (
     READOUTS_BY_NAME,
 )
 from cuttle_patterns.embedders.vgg import BACKBONE_NAME as VGG_BACKBONE_NAME
-from cuttle_patterns.embedders.vgg import LAYER_TO_INDEX as VGG_LAYER_CHOICES
+from cuttle_patterns.embedders.vgg import VGG_LAYERS as VGG_LAYER_CHOICES
 
 DEFAULT_RESOLUTION = 224
 # hard override, not a default: shallow VGG layers (relu1_1/relu2_1) run at little to no
@@ -61,7 +61,7 @@ def _parse_vgg_layers(value: str) -> list[str]:
         raise argparse.ArgumentTypeError(
             f'unknown VGG layer(s): {sorted(unknown)}; choices: {list(VGG_LAYER_CHOICES)}'
         )
-    return sorted(layers, key=lambda layer: VGG_LAYER_CHOICES[layer])
+    return sorted(layers, key=lambda layer: VGG_LAYER_CHOICES[layer].index)
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -72,7 +72,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     """
     parser = subparsers.add_parser(
         'embed',
-        help='run a frozen pretrained embedder (DINOv3 or VGG-19) over exported frames',
+        help='run a frozen pretrained embedder over exported frames',
         formatter_class=DefaultsHelpFormatter,
     )
     parser.add_argument(
