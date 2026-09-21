@@ -1,22 +1,12 @@
-"""Plot a grid of representative frames for each cluster in a `cuttle cluster` output.
+"""Sample and plot representative frames for each cluster in a `cuttle cluster` output.
 
-For a given BEAST model and cluster run, loads the clustering parquet from
-`results_dir/beast_models/{model_name}/clusters/{cluster_run}.parquet` and, for each
-distinct `cluster` label, randomly samples `--n-frames` member frames, loads their
-exported PNGs from `results_dir/beast_frames/{video_name}/img{frame_number:08d}.png`, and
-plots them in a grid (default 4 columns x 3 rows). One figure is written per cluster to
-`results_dir/beast_models/{model_name}/clusters/{cluster_run}/`.
+For a given BEAST model and cluster run, samples random member frames per distinct
+`cluster` label and assembles them into a grid figure, for `cuttle clusterview`.
 
 Frame selection is uniform-random per cluster for now; a nearest-centroid or other more
 "representative" selection strategy may replace this later.
-
-Usage:
-    python scripts/plot_cluster_frames.py \
-        --model-name iter-1.1_msps-vae_d16 \
-        --cluster-run kmeans_k16
 """
 
-import argparse
 from pathlib import Path
 
 import cv2
@@ -25,7 +15,6 @@ import numpy as np
 import pandas as pd
 
 from cuttle_patterns import paths
-from cuttle_patterns.config import load_config
 
 DEFAULT_N_FRAMES = 12
 DEFAULT_N_COLS = 4
@@ -146,81 +135,3 @@ def plot_cluster_grid(
         bottom=0.01, left=0.01, right=0.99, hspace=0.5, wspace=0.05,
     )
     return fig
-
-
-def main() -> None:
-    """Sample and plot representative frames for every cluster in a cluster run."""
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        '--model-name',
-        required=True,
-        help='BEAST model directory name, e.g. iter-1.1_msps-vae_d16',
-    )
-    parser.add_argument(
-        '--cluster-run',
-        required=True,
-        help='stem of the cluster parquet file, e.g. kmeans_k16',
-    )
-    parser.add_argument(
-        '--results-dir',
-        type=Path,
-        default=None,
-        help='override the results directory from config',
-    )
-    parser.add_argument(
-        '--n-frames',
-        type=int,
-        default=DEFAULT_N_FRAMES,
-        help='number of frames to sample per cluster',
-    )
-    parser.add_argument(
-        '--n-cols',
-        type=int,
-        default=DEFAULT_N_COLS,
-        help='number of grid columns; rows are derived from --n-frames',
-    )
-    parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
-    args = parser.parse_args()
-
-    results_dir = args.results_dir if args.results_dir is not None else load_config().results_dir
-
-    cluster_path = (
-        results_dir
-        / paths.BEAST_MODELS_RELPATH
-        / args.model_name
-        / paths.CLUSTERS_RELPATH
-        / f'{args.cluster_run}.parquet'
-    )
-    if not cluster_path.exists():
-        raise FileNotFoundError(f'no cluster file found at {cluster_path}')
-    df = pd.read_parquet(cluster_path)
-
-    output_dir = (
-        results_dir
-        / paths.BEAST_MODELS_RELPATH
-        / args.model_name
-        / paths.CLUSTERS_RELPATH
-        / args.cluster_run
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    rng = np.random.default_rng(args.seed)
-    cluster_width = max(2, len(str(int(df['cluster'].max()))))
-
-    for cluster_label in sorted(df['cluster'].unique()):
-        cluster_df = df[df['cluster'] == cluster_label]
-        sample_df = sample_cluster_frames(cluster_df, args.n_frames, rng)
-
-        fig = plot_cluster_grid(sample_df, results_dir, cluster_label, args.n_cols)
-        output_path = output_dir / f'cluster_{cluster_label:0{cluster_width}d}.png'
-        if output_path.exists():
-            print(f'warning: overwriting existing {output_path}')
-        fig.savefig(output_path, dpi=150)
-        plt.close(fig)
-        print(f'cluster {cluster_label}: {len(cluster_df)} members, wrote {output_path}')
-
-
-if __name__ == '__main__':
-    main()

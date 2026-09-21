@@ -268,7 +268,24 @@ Reads the same `.npy` latents `cuttle reduce` does (`--predictions-name`, defaul
 default); `{hparams}` encodes it so different sweeps land in separate files;
 `--random-state` (default 42) is also exposed but isn't part of the filename.
 
-### 9. `cuttle serve`
+### 9. `cuttle clusterview`
+
+For each distinct `cluster` label in a `cuttle cluster` output, randomly samples member
+frames and plots them in a grid, one PNG per cluster — a quick visual QC pass before
+reaching for the interactive explorer.
+
+```bash
+cuttle clusterview --model-name resnet-ae-v1 --cluster-run kmeans_k10
+```
+
+Reads `results_dir/beast_models/{model_name}/clusters/{cluster_run}.parquet` (the file
+`cuttle cluster` writes) and writes one figure per cluster to
+`results_dir/beast_models/{model_name}/clusters/{cluster_run}/cluster_{label}.png`.
+`--n-frames` (default 12) sets how many member frames are sampled per cluster;
+`--n-cols` (default 4) sets the grid width, with row count derived from `--n-frames`;
+`--seed` (default 0) controls the per-cluster sampling.
+
+### 10. `cuttle serve`
 
 Launches the interactive embedding explorer: a Bokeh dashboard with a dot per frame,
 hover to see the corresponding aligned frame image, colored by any UMAP reduction's

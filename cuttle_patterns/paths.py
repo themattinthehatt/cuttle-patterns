@@ -17,7 +17,7 @@ relative paths, so the tree layout only has to change in one place:
     │       │   └── umap_{hparams}.parquet
     │       └── clusters/                  # cuttle cluster
     │           ├── {method}_{hparams}.parquet
-    │           └── {method}_{hparams}/    # scripts/plot_cluster_frames.py
+    │           └── {method}_{hparams}/    # cuttle clusterview
     ├── classifications/                    # scripts/classify_skin_pattern.py
     │   └── {classifier_name}.parquet       # model-independent, unlike clusters/ above
     ├── eval/                               # cuttle_patterns.eval.run_core
