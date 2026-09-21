@@ -7,6 +7,7 @@ from cuttle_patterns.embedders.base import TokenOutput
 from cuttle_patterns.embedders.readouts import (
     READOUTS_BY_NAME,
     ClsReadout,
+    FusedGramReadout,
     GramReadout,
     MeanPatchTaperReadout,
     MeanPatchUniformReadout,
@@ -301,3 +302,111 @@ class TestGramReadout:
         assert result.device.type == 'cuda'
         # state_dict moves P to CPU regardless of the fitting device, for portability
         assert readout.state_dict()['P'].device.type == 'cpu'
+
+
+def _tokens_per_layer(
+    layer_dims: dict[str, int], n_frames: int, grid_hw: tuple[int, int],
+) -> list[TokenOutput]:
+    """One randn TokenOutput per layer, in `layer_dims`' order."""
+    n_positions = grid_hw[0] * grid_hw[1]
+    return [
+        TokenOutput(
+            cls=torch.zeros(n_frames, dim), patches=torch.randn(n_frames, n_positions, dim),
+            grid_hw=grid_hw,
+        )
+        for dim in layer_dims.values()
+    ]
+
+
+class TestFusedGramReadout:
+    """Test the class FusedGramReadout."""
+
+    def test_fused_gram_readout_not_registered_by_name(self):
+        # Assert -- only reachable via build_embedder's VGG-fusion branch
+        assert FusedGramReadout not in READOUTS_BY_NAME.values()
+
+    def test_fused_gram_readout_name_matches_single_layer_pattern(self):
+        # Act
+        readout = FusedGramReadout(layer_dims={'relu3_1': 4, 'relu4_1': 3}, k=2, weights='taper')
+
+        # Assert -- layer identity lives in the backbone key, not the readout name
+        assert readout.name == 'gram_k2_taper'
+
+    def test_fused_gram_readout_k_exceeding_any_layer_raises(self):
+        # Act & Assert -- cascades from GramReadout's own per-layer validation
+        with pytest.raises(ValueError, match='cannot exceed'):
+            FusedGramReadout(layer_dims={'relu3_1': 4, 'relu4_1': 3}, k=4, weights='uniform')
+
+    def test_fused_gram_readout_dim_sums_every_layer(self):
+        # Act
+        readout = FusedGramReadout(layer_dims={'relu3_1': 4, 'relu4_1': 6}, k=2, weights='uniform')
+
+        # Assert -- k=2 -> k(k+1)/2=3 per layer, two layers
+        assert readout.dim == 6
+
+    def test_fused_gram_readout_fit_and_call_concatenates_layers_in_order(self):
+        # Arrange
+        torch.manual_seed(6)
+        layer_dims = {'relu3_1': 4, 'relu4_1': 3}
+        readout = FusedGramReadout(layer_dims=layer_dims, k=2, weights='taper')
+        grid_hw = (3, 3)
+        fit_tokens = _tokens_per_layer(layer_dims, n_frames=8, grid_hw=grid_hw)
+
+        # Act
+        readout.partial_fit(fit_tokens, pass_idx=0)
+        readout.finalize_pass(pass_idx=0)
+        call_tokens = _tokens_per_layer(layer_dims, n_frames=2, grid_hw=grid_hw)
+        result = readout(call_tokens)
+
+        # Assert -- fit-set list emptied by partial_fit; call-time list emptied by call
+        assert fit_tokens == []
+        assert call_tokens == []
+        assert result.shape == (2, readout.dim)
+        assert torch.isfinite(result).all()
+        # matches computing each layer's own GramReadout output independently and
+        # concatenating, confirming order and values (not just shape)
+        expected_layer1 = readout._sub_readouts['relu3_1'].dim
+        assert readout._sub_readouts['relu3_1'].P.shape == (2, 4)
+        assert readout._sub_readouts['relu4_1'].P.shape == (2, 3)
+        assert result.shape[-1] == expected_layer1 + readout._sub_readouts['relu4_1'].dim
+
+    def test_fused_gram_readout_metadata_reports_shared_and_per_layer_fields(self):
+        # Arrange
+        torch.manual_seed(7)
+        layer_dims = {'relu3_1': 4, 'relu4_1': 3}
+        readout = FusedGramReadout(layer_dims=layer_dims, k=2, weights='taper')
+        fit_tokens = _tokens_per_layer(layer_dims, n_frames=5, grid_hw=(3, 3))
+        readout.partial_fit(fit_tokens, pass_idx=0)
+        readout.finalize_pass(pass_idx=0)
+
+        # Act
+        metadata = readout.metadata()
+
+        # Assert
+        assert metadata == {
+            'gram_k': 2,
+            'gram_weights': 'taper',
+            'gram_layers': ['relu3_1', 'relu4_1'],
+            'gram_variance_retained_relu3_1': readout._sub_readouts['relu3_1'].variance_retained,
+            'gram_variance_retained_relu4_1': readout._sub_readouts['relu4_1'].variance_retained,
+        }
+
+    def test_fused_gram_readout_state_dict_round_trip(self):
+        # Arrange
+        torch.manual_seed(8)
+        layer_dims = {'relu3_1': 4, 'relu4_1': 3}
+        readout = FusedGramReadout(layer_dims=layer_dims, k=2, weights='uniform')
+        fit_tokens = _tokens_per_layer(layer_dims, n_frames=5, grid_hw=(3, 3))
+        readout.partial_fit(fit_tokens, pass_idx=0)
+        readout.finalize_pass(pass_idx=0)
+        state = readout.state_dict()
+
+        # Act
+        restored = FusedGramReadout(layer_dims=layer_dims, k=2, weights='uniform')
+        restored.load_state_dict(state)
+
+        # Assert
+        for layer in layer_dims:
+            torch.testing.assert_close(
+                restored._sub_readouts[layer].P, readout._sub_readouts[layer].P,
+            )

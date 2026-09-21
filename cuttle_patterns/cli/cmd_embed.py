@@ -13,6 +13,8 @@ from cuttle_patterns.embed import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_GRAM_K,
     DEFAULT_GRAM_WEIGHTS,
+    DEFAULT_VGG_LAYER,
+    DEFAULT_VGG_RESOLUTION,
     build_embedder,
     find_frame_paths,
     fit_readout,
@@ -26,8 +28,40 @@ from cuttle_patterns.embedders.readouts import (
     GRAM_WEIGHTS_CHOICES,
     READOUTS_BY_NAME,
 )
+from cuttle_patterns.embedders.vgg import BACKBONE_NAME as VGG_BACKBONE_NAME
+from cuttle_patterns.embedders.vgg import LAYER_TO_INDEX as VGG_LAYER_CHOICES
 
 DEFAULT_RESOLUTION = 224
+# hard override, not a default: shallow VGG layers (relu1_1/relu2_1) run at little to no
+# downsampling, so their patch grid can be ~200k positions per frame at DEFAULT_VGG_RESOLUTION
+# (e.g. 448x448 for relu1_1's 1x stride) -- vs. DINOv3's fixed ~784 at the same resolution --
+# and the Gram readout's float64 (batch_size, N, C) tensor blows past GPU memory well before
+# --batch-size's default (128) for these layers; --batch-size is ignored for vgg19 entirely
+# rather than left as a footgun users have to rediscover via a CUDA OOM
+VGG_BATCH_SIZE = 32
+
+
+def _parse_vgg_layers(value: str) -> list[str]:
+    """argparse `type=` for `--vgg-layer`: comma-separated, canonically block-ordered.
+
+    Args:
+        value: one or more of `VGG_LAYER_CHOICES`' keys, comma-separated (e.g.
+            `'relu3_1'` or `'relu4_1,relu3_1'`).
+
+    Returns:
+        the requested layers, deduplicated and sorted into canonical block order
+        (shallowest first), regardless of input order.
+
+    Raises:
+        argparse.ArgumentTypeError: if any layer name is unknown.
+    """
+    layers = set(value.split(','))
+    unknown = layers - set(VGG_LAYER_CHOICES)
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f'unknown VGG layer(s): {sorted(unknown)}; choices: {list(VGG_LAYER_CHOICES)}'
+        )
+    return sorted(layers, key=lambda layer: VGG_LAYER_CHOICES[layer])
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -38,7 +72,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     """
     parser = subparsers.add_parser(
         'embed',
-        help='run a frozen pretrained embedder (e.g. DINOv3) over exported frames',
+        help='run a frozen pretrained embedder (DINOv3 or VGG-19) over exported frames',
         formatter_class=DefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -49,15 +83,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         '--backbone',
-        choices=list(ARCH_TO_HF_ID),
+        choices=[*ARCH_TO_HF_ID, VGG_BACKBONE_NAME],
         required=True,
-        help='DINOv3 architecture to embed with',
+        help='DINOv3 architecture, or vgg19, to embed with',
     )
     parser.add_argument(
         '--resolution',
         type=int,
-        default=DEFAULT_RESOLUTION,
-        help='square input side length, in pixels; must be a multiple of 16',
+        default=None,
+        help='square input side length, in pixels; must be a multiple of 16 for a '
+        f'DINOv3 backbone, or of --vgg-layer\'s (deepest, if fused) downsampling stride '
+        f'for {VGG_BACKBONE_NAME}; defaults to {DEFAULT_RESOLUTION} for DINOv3, '
+        f'{DEFAULT_VGG_RESOLUTION} for {VGG_BACKBONE_NAME}',
     )
     parser.add_argument(
         '--readout',
@@ -68,9 +105,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         '--model-name',
         default=None,
-        help='defaults to {backbone}_{resolution}_{readout name}, e.g. '
-        'dinov3_vitb16_224_cls or dinov3_vitb16_448_gram_k64_taper; written to '
-        f'results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
+        help='defaults to {backbone key}_{readout name}, e.g. dinov3_vitb16_224_cls, '
+        'vgg19_3_448_gram_k64_taper, or (fused) vgg19_345_448_gram_k64_taper; written '
+        f'to results_dir/{paths.BEAST_MODELS_RELPATH}/{{model_name}}',
     )
     parser.add_argument(
         '--input-dir',
@@ -89,7 +126,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         '--batch-size', '-b',
         type=int,
         default=DEFAULT_BATCH_SIZE,
-        help='number of frames per forward pass',
+        help=f'number of frames per forward pass; ignored for --backbone {VGG_BACKBONE_NAME}, '
+        f'which always uses {VGG_BATCH_SIZE} (its shallow layers can have far larger patch '
+        'grids than DINOv3 at the same resolution, risking a CUDA OOM at higher batch sizes)',
     )
     parser.add_argument(
         '--device',
@@ -109,6 +148,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=DEFAULT_GRAM_WEIGHTS,
         help=f'patch spatial weighting for --readout {GRAM_READOUT_NAME}; ignored for '
         'other readouts',
+    )
+    parser.add_argument(
+        '--vgg-layer',
+        type=_parse_vgg_layers,
+        default=[DEFAULT_VGG_LAYER],
+        help=f'VGG-19 layer(s) for --backbone {VGG_BACKBONE_NAME} (choices: '
+        f'{",".join(VGG_LAYER_CHOICES)}); comma-separated for Gram fusion (e.g. '
+        f'relu3_1,relu4_1,relu5_1), only supported with --readout {GRAM_READOUT_NAME}; '
+        'ignored otherwise',
     )
     parser.set_defaults(handler=cmd_embed)
 
@@ -139,6 +187,10 @@ def cmd_embed(args: argparse.Namespace) -> None:
     predictions_name = (
         args.predictions_name if args.predictions_name is not None else input_dir.stem
     )
+    resolution = args.resolution if args.resolution is not None else (
+        DEFAULT_VGG_RESOLUTION if args.backbone == VGG_BACKBONE_NAME else DEFAULT_RESOLUTION
+    )
+    batch_size = VGG_BATCH_SIZE if args.backbone == VGG_BACKBONE_NAME else args.batch_size
 
     try:
         frame_paths = find_frame_paths(input_dir)
@@ -148,32 +200,33 @@ def cmd_embed(args: argparse.Namespace) -> None:
     print(f'found {len(frame_paths)} frames under {input_dir}')
 
     print(f'device: {device}')
+    if args.backbone == VGG_BACKBONE_NAME and args.batch_size != VGG_BATCH_SIZE:
+        print(f'batch size: {batch_size} (--batch-size {args.batch_size} ignored for vgg19)')
     readout_kwargs = (
         {'k': args.gram_k, 'weights': args.gram_weights}
         if args.readout == GRAM_READOUT_NAME else None
     )
     try:
         embedder = build_embedder(
-            args.backbone, args.resolution, args.readout, device, readout_kwargs=readout_kwargs,
+            args.backbone, resolution, args.readout, device,
+            vgg_layer=args.vgg_layer, readout_kwargs=readout_kwargs,
         )
     except ValueError as e:
         print(f'Error: {e}')
         sys.exit(1)
 
-    # embedder.readout.name (not args.readout) since a parametrized readout like gram
-    # encodes its hyperparameters into its name (e.g. gram_k64_taper), not just its family
-    model_name = (
-        args.model_name if args.model_name is not None
-        else f'dinov3_{args.backbone}_{args.resolution}_{embedder.readout.name}'
-    )
+    # embedder.id (backbone.key + readout.name), not raw args, since a parametrized
+    # readout like gram encodes its hyperparameters into its name (e.g. gram_k64_taper),
+    # not just its family, and backbone.key already encodes arch/layer/resolution
+    model_name = args.model_name if args.model_name is not None else embedder.id
 
     if embedder.requires_fit:
         fit_frame_paths = sample_fit_frame_paths(frame_paths)
         print(f'fitting {embedder.readout.name} on {len(fit_frame_paths)} fit-set frames')
-        fit_readout(embedder, fit_frame_paths, batch_size=args.batch_size)
+        fit_readout(embedder, fit_frame_paths, batch_size=batch_size)
         print(f'fit complete: {embedder.readout.metadata()}')
 
-    embeddings, meta = run_embed(embedder, frame_paths, batch_size=args.batch_size)
+    embeddings, meta = run_embed(embedder, frame_paths, batch_size=batch_size)
 
     model_dir = results_dir / paths.BEAST_MODELS_RELPATH / model_name
     latents_dir = write_embedder_output(embeddings, meta, embedder, model_dir, predictions_name)

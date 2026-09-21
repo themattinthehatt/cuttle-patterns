@@ -5,15 +5,19 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pandas as pd
 import pytest
 import yaml
 
-from cuttle_patterns.cli.cmd_embed import cmd_embed
+from cuttle_patterns.cli.cmd_embed import VGG_BATCH_SIZE, _parse_vgg_layers, cmd_embed, register
 from cuttle_patterns.embedders.base import Embedder
 
 
 class _FakeBackbone:
-    key = 'fake_backbone'
+    # matches _make_args' default --backbone/--resolution so tests asserting on
+    # cmd_embed's default model-name (embedder.id = backbone.key + readout.name) see a
+    # realistic backbone.key without loading a real DINOv3 model
+    key = 'dinov3_vitb16_224'
 
     def preprocess(self, frames):
         return frames
@@ -98,6 +102,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         device='cpu',
         gram_k=64,
         gram_weights='taper',
+        vgg_layer=['relu3_1'],
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -221,6 +226,103 @@ class TestCmdEmbed:
         # Assert
         assert captured['readout_kwargs'] == {'k': 32, 'weights': 'uniform'}
 
+    def test_cmd_embed_passes_vgg_layer_and_default_resolution_to_build_embedder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        captured = {}
+
+        def _fake_build_embedder(backbone_arch, resolution, readout_name, device, **kwargs):
+            captured['resolution'] = resolution
+            captured['vgg_layer'] = kwargs.get('vgg_layer')
+            return _FakeEmbedder()
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.build_embedder', _fake_build_embedder)
+        args = _make_args(
+            results_dir=results_dir, backbone='vgg19', resolution=None, vgg_layer=['relu4_1'],
+        )
+
+        # Act
+        cmd_embed(args)
+
+        # Assert -- --resolution wasn't passed, so it defaults to DEFAULT_VGG_RESOLUTION
+        # (448) for backbone vgg19, not DEFAULT_RESOLUTION (224)
+        assert captured == {'resolution': 448, 'vgg_layer': ['relu4_1']}
+
+    def test_cmd_embed_forces_batch_size_for_vgg19(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        monkeypatch.setattr(
+            'cuttle_patterns.cli.cmd_embed.build_embedder',
+            lambda *args, **kwargs: _FakeGramEmbedder(),
+        )
+        captured = {}
+
+        def _fake_fit_readout(embedder, fit_frame_paths, batch_size):
+            captured['fit_batch_size'] = batch_size
+
+        def _fake_run_embed(embedder, frame_paths, batch_size):
+            captured['run_batch_size'] = batch_size
+            embeddings = embedder.embed(np.zeros((len(frame_paths), 4, 4, 3), dtype=np.uint8))
+            meta = pd.DataFrame({
+                'video_name': ['v'] * len(frame_paths),
+                'day': [1] * len(frame_paths),
+                'tank': [1] * len(frame_paths),
+                'role': ['Resident'] * len(frame_paths),
+                'frame_number': list(range(len(frame_paths))),
+            })
+            return embeddings, meta
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.fit_readout', _fake_fit_readout)
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.run_embed', _fake_run_embed)
+        args = _make_args(
+            results_dir=results_dir, backbone='vgg19', readout='gram', batch_size=128,
+        )
+
+        # Act
+        cmd_embed(args)
+
+        # Assert -- --batch-size 128 was passed but ignored for vgg19
+        assert captured == {'fit_batch_size': VGG_BATCH_SIZE, 'run_batch_size': VGG_BATCH_SIZE}
+
+    def test_cmd_embed_respects_batch_size_for_dinov3(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        _write_frames(results_dir / 'beast_frames', n_frames=1)
+        monkeypatch.setattr(
+            'cuttle_patterns.cli.cmd_embed.build_embedder',
+            lambda *args, **kwargs: _FakeEmbedder(),
+        )
+        captured = {}
+
+        def _fake_run_embed(embedder, frame_paths, batch_size):
+            captured['run_batch_size'] = batch_size
+            embeddings = embedder.embed(np.zeros((len(frame_paths), 4, 4, 3), dtype=np.uint8))
+            meta = pd.DataFrame({
+                'video_name': ['v'] * len(frame_paths),
+                'day': [1] * len(frame_paths),
+                'tank': [1] * len(frame_paths),
+                'role': ['Resident'] * len(frame_paths),
+                'frame_number': list(range(len(frame_paths))),
+            })
+            return embeddings, meta
+
+        monkeypatch.setattr('cuttle_patterns.cli.cmd_embed.run_embed', _fake_run_embed)
+        args = _make_args(results_dir=results_dir, batch_size=7)
+
+        # Act
+        cmd_embed(args)
+
+        # Assert -- unlike vgg19, DINOv3 keeps the user's --batch-size unchanged
+        assert captured == {'run_batch_size': 7}
+
     def test_cmd_embed_does_not_fit_stateless_readout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ):
@@ -240,3 +342,40 @@ class TestCmdEmbed:
 
         # Act & Assert -- would raise if fit_readout were called
         cmd_embed(args)
+
+
+class TestParseVggLayers:
+    """Test the function _parse_vgg_layers."""
+
+    def test_parse_vgg_layers_single_value(self):
+        # Act & Assert
+        assert _parse_vgg_layers('relu3_1') == ['relu3_1']
+
+    def test_parse_vgg_layers_sorts_into_canonical_block_order(self):
+        # Act & Assert -- deliberately out of order
+        assert _parse_vgg_layers('relu5_1,relu1_1,relu3_1') == ['relu1_1', 'relu3_1', 'relu5_1']
+
+    def test_parse_vgg_layers_dedupes(self):
+        # Act & Assert
+        assert _parse_vgg_layers('relu3_1,relu3_1') == ['relu3_1']
+
+    def test_parse_vgg_layers_unknown_layer_raises(self):
+        # Act & Assert
+        with pytest.raises(argparse.ArgumentTypeError, match='unknown VGG layer'):
+            _parse_vgg_layers('relu3_1,not-a-real-layer')
+
+    def test_parse_vgg_layers_wired_into_the_real_parser(self):
+        # Arrange -- catches a wiring bug (e.g. forgetting type=) that a direct unit
+        # test of _parse_vgg_layers alone wouldn't
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        register(subparsers)
+
+        # Act
+        args = parser.parse_args(
+            ['embed', '--backbone', 'vgg19', '--readout', 'gram', '--vgg-layer',
+             'relu5_1,relu3_1'],
+        )
+
+        # Assert
+        assert args.vgg_layer == ['relu3_1', 'relu5_1']

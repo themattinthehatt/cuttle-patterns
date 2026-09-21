@@ -36,9 +36,13 @@ jobs:
           # fails at metadata-prep time on a runner with no CUDA_HOME at all.
           BUILD_NO_CUDA: "1"
         run: |
-          # CPU wheel first so lightning/beast's own torch pull is satisfied by it instead
-          # of pulling the much heavier CUDA build on this CPU-only runner.
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # CPU wheels first so lightning/beast/cuttle-patterns' own torch(vision) pulls
+          # are satisfied by these instead of pulling the much heavier CUDA build on this
+          # CPU-only runner. torch and torchvision must come from the same index/build --
+          # an unconstrained `pip install torchvision` later would resolve a PyPI default
+          # build with a mismatched ABI against this CPU wheel, breaking custom op
+          # registration (torchvision::nms) at import time.
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install lightning poetry-core
           pip install git+https://github.com/paninski-lab/beast.git --no-build-isolation
 

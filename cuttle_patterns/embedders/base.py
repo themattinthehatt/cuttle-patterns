@@ -19,18 +19,21 @@ Frames = np.ndarray
 
 @dataclass
 class TokenOutput:
-    """What a ViT-style backbone returns for one batch.
+    """What a backbone returns for one batch: a spatial grid of feature vectors.
 
     Attributes:
-        cls: post-norm CLS token, shape (B, C).
-        patches: post-norm patch tokens in row-major grid order, shape (B, N, C),
-            N = grid_h * grid_w.
+        patches: post-norm patch/feature-map tokens in row-major grid order, shape
+            (B, N, C), N = grid_h * grid_w.
         grid_hw: the patch grid shape (grid_h, grid_w).
+        cls: post-norm CLS token, shape (B, C), for backbones that have one. `None`
+            for a purely convolutional backbone (e.g. VGG) with no CLS-token
+            equivalent -- a readout that needs it (`cls`) is incompatible with such a
+            backbone; see `cuttle_patterns.embed.build_embedder`.
     """
 
-    cls: torch.Tensor
     patches: torch.Tensor
     grid_hw: tuple[int, int]
+    cls: torch.Tensor | None = None
 
 
 class Backbone(ABC):

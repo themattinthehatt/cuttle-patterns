@@ -152,6 +152,119 @@ class TestBuildEmbedder:
         # Assert
         assert captured == {'dim': 8, 'kwargs': {'k': 4, 'weights': 'uniform'}}
 
+    def test_build_embedder_unknown_backbone_raises_before_loading_readout(self):
+        # Act & Assert
+        with pytest.raises(ValueError, match='unknown backbone'):
+            build_embedder('not-a-real-backbone', 224, 'cls', device=torch.device('cpu'))
+
+    def test_build_embedder_vgg19_with_cls_readout_raises_before_loading(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        def _fail_if_called(*args, **kwargs):
+            raise AssertionError('VGGBackbone should not be constructed')
+
+        monkeypatch.setattr('cuttle_patterns.embed.VGGBackbone', _fail_if_called)
+
+        # Act & Assert
+        with pytest.raises(ValueError, match='no CLS token'):
+            build_embedder('vgg19', 448, 'cls', device=torch.device('cpu'))
+
+    def test_build_embedder_dispatches_to_vgg_backbone(self, monkeypatch: pytest.MonkeyPatch):
+        # Arrange
+        captured = {}
+
+        class _FakeVGGBackboneClass:
+            embed_dim = 8
+
+            def __init__(self, layer, resolution, device):
+                captured['layer'] = layer
+                captured['resolution'] = resolution
+
+        monkeypatch.setattr('cuttle_patterns.embed.VGGBackbone', _FakeVGGBackboneClass)
+
+        # Act
+        build_embedder(
+            'vgg19', 448, 'meanpatch_uniform', device=torch.device('cpu'), vgg_layer=['relu4_1'],
+        )
+
+        # Assert
+        assert captured == {'layer': 'relu4_1', 'resolution': 448}
+
+    def test_build_embedder_vgg19_defaults_layer_when_none_given(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        captured = {}
+
+        class _FakeVGGBackboneClass:
+            embed_dim = 8
+
+            def __init__(self, layer, resolution, device):
+                captured['layer'] = layer
+
+        monkeypatch.setattr('cuttle_patterns.embed.VGGBackbone', _FakeVGGBackboneClass)
+
+        # Act
+        build_embedder('vgg19', 448, 'meanpatch_uniform', device=torch.device('cpu'))
+
+        # Assert
+        assert captured['layer'] == 'relu3_1'
+
+    def test_build_embedder_vgg_fusion_with_non_gram_readout_raises_before_loading(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        def _fail_if_called(*args, **kwargs):
+            raise AssertionError('MultiLayerVGGBackbone should not be constructed')
+
+        monkeypatch.setattr('cuttle_patterns.embed.MultiLayerVGGBackbone', _fail_if_called)
+
+        # Act & Assert
+        with pytest.raises(ValueError, match='requires --readout gram'):
+            build_embedder(
+                'vgg19', 448, 'meanpatch_uniform', device=torch.device('cpu'),
+                vgg_layer=['relu3_1', 'relu4_1'],
+            )
+
+    def test_build_embedder_vgg_fusion_dispatches_to_fused_gram_readout(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        # Arrange
+        captured = {}
+
+        class _FakeMultiLayerVGGBackboneClass:
+            layers = ['relu3_1', 'relu4_1']
+            channels_by_layer = {'relu3_1': 256, 'relu4_1': 512}
+
+            def __init__(self, layers, resolution, device):
+                captured['layers'] = layers
+                captured['resolution'] = resolution
+
+        class _FakeFusedGramReadoutClass:
+            def __init__(self, layer_dims, **kwargs):
+                captured['layer_dims'] = layer_dims
+                captured['kwargs'] = kwargs
+
+        monkeypatch.setattr(
+            'cuttle_patterns.embed.MultiLayerVGGBackbone', _FakeMultiLayerVGGBackboneClass,
+        )
+        monkeypatch.setattr('cuttle_patterns.embed.FusedGramReadout', _FakeFusedGramReadoutClass)
+
+        # Act
+        embedder = build_embedder(
+            'vgg19', 448, 'gram', device=torch.device('cpu'),
+            vgg_layer=['relu4_1', 'relu3_1'], readout_kwargs={'k': 32, 'weights': 'uniform'},
+        )
+
+        # Assert -- layer_dims comes from the backbone's own (already canonicalized)
+        # channels_by_layer, not a re-derivation from the raw (out-of-order) CLI input
+        assert captured['layers'] == ['relu4_1', 'relu3_1']
+        assert captured['layer_dims'] == {'relu3_1': 256, 'relu4_1': 512}
+        assert captured['kwargs'] == {'k': 32, 'weights': 'uniform'}
+        assert isinstance(embedder.backbone, _FakeMultiLayerVGGBackboneClass)
+        assert isinstance(embedder.readout, _FakeFusedGramReadoutClass)
+
 
 class TestParseFramePath:
     """Test the function _parse_frame_path."""
