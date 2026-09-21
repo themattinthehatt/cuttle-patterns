@@ -1,11 +1,14 @@
 # Embeddings implementation
 
+**Doc type:** living implementation reference — edited in place as the embedder
+implementation changes.
+
 Reference for the frozen-pretrained-backbone embedders that feed the
 [evaluation harness](eval_plan.md) as Tier B. Covers the `Backbone`/`Readout`/`Embedder`
 protocol every embedder implements, a DINOv3 backbone with CLS-token, mean-patch, and
-Gram-matrix (second-order texture) readouts, and the `cuttle embed` CLI that runs any of
-them over exported frames. VGG-19 Gram features are a planned follow-up, sketched at the
-end so the design leaves room for them, but not yet implemented.
+Gram-matrix (second-order texture) readouts, a VGG-19 backbone (single-layer and
+multi-layer Gram fusion) built for the same protocol, and the `cuttle embed` CLI that
+runs any of them over exported frames.
 
 Code: `cuttle_patterns/embedders/{base,dinov3,readouts,spatial_weights,gram_math}.py`,
 `cuttle_patterns/embed.py` (the `cuttle embed` extraction loop),
@@ -93,11 +96,9 @@ inspection — nothing in `cuttle_patterns` reads it back.
 
 ## CLI: `cuttle embed`
 
-```bash
-cuttle embed --backbone vitb16 --resolution 224 --readout cls
-# writes to results_dir/beast_models/dinov3_vitb16_224_cls/ by default;
-# pass --model-name to override
+See README.md's `cuttle embed` section for a basic DINOv3 example. A VGG-19 example:
 
+```bash
 cuttle embed --backbone vgg19 --vgg-layer relu3_1 --readout gram
 # writes to results_dir/beast_models/vgg19_3_448_gram_k64_taper/ by default
 ```
@@ -285,7 +286,7 @@ the top `k` directions capture) is recorded in `config.yaml` as a fit diagnostic
   final-layer ViT patch tokens have passed through many layers of global attention, so
   each token already mixes in whole-image context — a Gram over these tokens is a
   second-order summary of *contextualized* features, not a pure Gatys-style texture
-  statistic. This is the main motivation for the VGG-19 follow-up below.
+  statistic. This is the main motivation for the VGG-19 backbone below.
 - **Layout blindness.** Any Gram descriptor discards spatial arrangement entirely. Some
   cuttlefish pattern distinctions are partly layout (disruptive components in
   characteristic body locations) while others are closer to stationary texture (mottle)

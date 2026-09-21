@@ -2,7 +2,11 @@
 
 Lightweight decision log for this project. Each entry: what we decided, why, what we
 considered instead, and current status. Add new entries at the top. See
-[PHASES.md](PHASES.md) for how these play out across the project timeline.
+[PHASES.md](PHASES.md) for how these play out across the project timeline — PHASES.md is
+the living narrative of *what the current design is*; entries here record *why it was
+chosen*, so they lean on a PHASES.md pointer for mechanism rather than restating it.
+Decisions themselves aren't rewritten after the fact, though duplicated mechanism
+description may be trimmed in favor of such a pointer.
 
 ---
 
@@ -42,8 +46,9 @@ the kind of low-level, cheap-shortcut signal (average activation level) this who
 project keeps needing to fight (see
 [latent_space_confounds.md](latent_space_confounds.md)'s "recurring pattern"), and is
 largely redundant with `meanpatch_taper` anyway; shrinkage and final-PCA were never
-actually needed at this dataset's scale. VGG-19 as a second Gram backbone remains a
-planned follow-up, not built — see embedder.md's closing section.
+actually needed at this dataset's scale. A VGG-19 Gram backbone (single-layer and
+multi-layer fusion) was added afterward as a second backbone on the same protocol — see
+embedder.md's "VGG-19 backbone"/"VGG-19 Gram fusion" sections.
 
 **Trade-off / known risk:** the `gram` readout's channel projection is refit from
 scratch on every `cuttle embed` invocation (deterministic given a fixed seed and fit-set
@@ -75,7 +80,7 @@ caller is expected to pick something that reads as non-BEAST at a glance, e.g.
 
 **Why:** `cuttle_patterns.latents.load_latents` (used by both `cuttle reduce` and
 `cuttle cluster`) only cares about the on-disk `.npy` layout under a model directory, and
-`embeddings.split_latent_spaces` only cares about one `config.yaml` key
+`latents.split_latent_spaces` only cares about one `config.yaml` key
 (`model.model_class`, to special-case `msps_vae`); neither actually checks that the
 directory came from a real `beast train` run. Matching that contract exactly means
 `cuttle reduce --model-name {model_name}` / `cuttle cluster --model-name {model_name}
@@ -164,7 +169,7 @@ latent bottleneck — `z_u` unsupervised/pattern, `z_b` background/identity shap
 triplet loss). Implemented on a new `msps-vae` branch in the `beast` repo
 (`model_class: msps_vae`), with a mirrored config here at `configs/beast_msps_vae.yaml`.
 Full design rationale, architecture, sampler design, hyperparameter calibration, and open
-questions live in [msps_vae_implementation.md](implementation_notes/msps_vae.md) — this entry
+questions live in [msps_vae.md](implementation_notes/msps_vae.md) — this entry
 is a pointer, not a duplicate.
 
 **Why:** UMAP projections of both prior backbones clustered primarily by `video_name`
@@ -469,21 +474,12 @@ rejecting it.
 **Status:** decided, implemented
 
 **Decision:** Consume the pose CSV a pose-estimation model actually writes — the standard
-multi-header format (three header rows: scorer, bodyparts, coords; one data row per
-frame) — rather than inventing a simplified `frame_idx, tail_x, tail_y, neck_x, neck_y`
-schema as originally sketched in `docs/PHASES.md` Phase 2b. `pose.load_pose_predictions`
-selects columns by the `bodyparts` level only (ignoring `scorer`, a model/run-specific
-label), so it works regardless of which pose model produced the file. Interpolate
-(flat-extrapolate at the edges, same convention as `align.interpolate_corners`) over any
-frame where either keypoint's likelihood is below 0.9. `interpolate_pose` trusts the pose
-CSV has exactly one row per video frame (holds for the one real file seen so far) instead
-of taking an explicit frame count to reconcile against, which also lets `align_video` skip
-opening the video up front just to learn its frame count. `cuttle inscribe`/`cuttle
-overlay` gain `--pose-dir` (default
-`results_dir/pose`, looked up per video as `{video_name}.csv`, mirroring the existing
-`--output-dir` pattern) and `--pose-path` (single-video override, mirroring
-`--video-path`); a video with no matching pose file falls back to the Phase 2a PCA path
-with a printed message.
+multi-header format (three header rows: scorer, bodyparts, coords) — rather than
+inventing a simplified `frame_idx, tail_x, tail_y, neck_x, neck_y` schema as originally
+sketched in `docs/PHASES.md` Phase 2b. Interpolate over any frame where either keypoint's
+likelihood is below 0.9. See [PHASES.md](PHASES.md) Phase 2b's "Per-frame pose
+predictions" for the full mechanism (`pose.load_pose_predictions`, the
+`--pose-dir`/`--pose-path` flags, and the no-pose-file fallback).
 
 **Why:** Real predictions for session-01/cuttle-01 landed with per-frame likelihoods
 around 0.998-0.999, confirming the format is the pose-estimation tool's native output
@@ -514,16 +510,12 @@ sessions land.
 ## Phase 2b keypoint scheme: tail + neck only, mask-cut over ellipse-fit
 
 **Date:** 2026-07-10
-**Status:** decided (design); implementation blocked on pose labeling/training
+**Status:** decided, implemented
 
 **Decision:** Use two pose keypoints (tail tip, head/body "neck" transition point)
-rather than the originally planned four (tail, neck, two lateral mantle-width points).
-Use the neck point as a mask-cutting boundary (zero out everything past it — the
-head/arm side) combined with the signed tail→neck vector for orientation, then reuse
-Phase 2a's existing mask-based sizing pipeline (distance-transform seed + integral-image
-rectangle growth, via `seed_from_distance_transform`/`grow_rectangle`) on the resulting
-mantle-only mask — rather than fitting a synthetic ellipse from four keypoints. Full
-technical plan in [PHASES.md](PHASES.md) Phase 2b.
+rather than the originally planned four (tail, neck, two lateral mantle-width points),
+cutting the mask at the neck rather than fitting a synthetic ellipse from four
+keypoints. Full technical plan in [PHASES.md](PHASES.md) Phase 2b.
 
 **Why:** A first real labeling attempt at the original 4-point scheme found the two
 lateral "width" points difficult to label consistently — much less anatomically
@@ -558,12 +550,11 @@ threshold plus largest-foreground-component selection.
 **Why:** The background is confirmed pure black (pixel value 0, verified via sampled
 corner pixels, no compression noise). But the cuttlefish's own dark chromatophore
 patterning also renders at or near 0, so pixel intensity alone can't distinguish body
-from background. A naive threshold (tried at both 10 and 1) left the mask riddled with
-holes wherever the animal displayed dark patterning, which shrank and mis-centered the
-Phase 2a inscribed rectangle (see [PHASES.md](PHASES.md) Phase 2a). Splitting on
-connected components of near-black pixels instead correctly reclassifies isolated dark
-patches on the body as foreground, since they aren't connected to the true background
-blob, regardless of whether they're fully enclosed.
+from background — plain thresholding left the mask riddled with holes (see
+[PHASES.md](PHASES.md) Phase 2a's "Mask recovery" for the v1→v2 iteration this
+diagnosed). Splitting on connected components of near-black pixels instead correctly
+reclassifies isolated dark patches on the body as foreground, since they aren't
+connected to the true background blob, regardless of whether they're fully enclosed.
 
 **Alternatives considered:**
 - `scipy.ndimage.binary_fill_holes` on the thresholded mask — only fixes holes fully
@@ -586,13 +577,11 @@ as long as the body doesn't split the frame into disconnected background pockets
 **Date:** 2026-07-09
 **Status:** decided
 
-**Decision:** Expose pipeline steps as subcommands of a single `cuttle` console script
-(`cuttle ingest`, and future `cuttle align`, `cuttle extract-frames`, etc.), implemented
-under `cuttle_patterns/cli/`: `main.py` builds the root argparse parser and auto-
-discovers every `cmd_*.py` file in the same directory via `Path.glob('cmd_*.py')`,
-importing each and calling its `register(subparsers)`; each `cmd_<name>.py` owns its
-argparse wiring (`register`) and a thin `cmd_<name>(args)` handler that delegates to real
-logic in a top-level module (e.g. `cmd_ingest.py` → `cuttle_patterns.ingest.build_manifest`).
+**Decision:** Expose pipeline steps as subcommands of a single `cuttle` console script,
+implemented under `cuttle_patterns/cli/` with auto-discovered `cmd_*.py` modules — no
+central registry to edit when adding a new step. See [PHASES.md](PHASES.md) Phase 1's
+"CLI" note for the mechanism (`main.py`'s auto-discovery, the `register`/`cmd_<name>`
+split).
 
 **Why:** Matches an existing project (github.com/themattinthehatt/crittercam) the user
 already has conventions and muscle memory for. Adding a new pipeline step is just adding

@@ -1,5 +1,7 @@
 # Pose Estimation
 
+**Doc type:** living status doc — edited in place each active-learning round.
+
 Tail/neck keypoint predictions consumed by the pose-informed path of `cuttle inscribe`
 (see [PHASES.md](PHASES.md) Phase 2b) are produced outside this codebase, using
 [Lightning Pose](https://github.com/paninski-lab/lightning-pose).

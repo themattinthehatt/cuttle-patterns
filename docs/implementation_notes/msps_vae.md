@@ -1,5 +1,9 @@
 # MSPS-VAE Implementation Plan
 
+**Doc type:** living implementation reference — status/design sections are edited in
+place as the implementation evolves; "Implementation gotchas" and "Resolved during
+implementation" are a dated historical record and aren't rewritten after the fact.
+
 **Status:** implemented, on beast's `msps-vae` branch
 (`~/Dropbox/github/paninski-lab/beast`) — see "Where this lives" below for why it's there
 and not in this repo. `../../configs/beast_msps_vae.yaml` in this repo mirrors beast's
@@ -263,7 +267,7 @@ directory structure.
 **Date:** 2026-09-18
 
 **Motivation:** inspecting representative frames per cluster for `iter-1.1_msps-vae_d16`'s
-`kmeans_k16` (`../../scripts/plot_cluster_frames.py`, via the dashboard) surfaced a second
+`kmeans_k16` (`cuttle clusterview`, via the dashboard) surfaced a second
 confound in `z_u`, distinct from the identity leakage the `z_b` split above already
 addresses: several clusters that are visually the same coarse pattern (e.g. "dark
 aggression" — dark base, white streaks/spots) split apart by *where* the inscribed
@@ -337,13 +341,13 @@ pipeline at inference — same reasoning as the "Where this lives" section above
 beast-side changes contained to what training actually needs.
 
 **Status: implemented**, on beast's `msps-vae` branch. New `model_params` fields:
-`use_spatial_loss_weight` (bool, default `false`) switches it on/off, and
-`spatial_loss_weight_r0` (default `0.5`) exposes the taper's plateau radius, matching the
-Open Questions note above that `r0` may need revisiting. When off, `compute_loss` is
-byte-for-byte the original unweighted `mse_loss` call — no behavior change for existing
-runs/configs. `configs/msps_vae.yaml` (beast) / `../../configs/beast_msps_vae.yaml` (here) both
-default it off, since it hasn't been validated against a real training run yet; flip it
-to `true` to try it on `iter-1.1_msps-vae_d16`'s successor run.
+`use_spatial_loss_weight` (bool) switches it on/off, and `spatial_loss_weight_r0`
+(default `0.5`) exposes the taper's plateau radius, matching the Open Questions note
+above that `r0` may need revisiting. When off, `compute_loss` is byte-for-byte the
+original unweighted `mse_loss` call — no behavior change for existing runs/configs.
+`../../configs/beast_msps_vae.yaml` (here) now has `use_spatial_loss_weight: true`
+committed, for the masked-MSPS-VAE run described in the "Spatial loss weighting"
+section above.
 
 ## Evaluation / validation plan
 
@@ -409,10 +413,10 @@ Replacing "eyeball the UMAP colored by `video_name`" with concrete checks:
   `latents = concat(z_u, z_b)` tensor (matching BEAST's existing single-flat-tensor
   `predict_step` contract, so `beast/inference.py` needed no changes), with the split
   index documented as `num_latents_unsupervised` in `MspsVae.predict_step`'s docstring.
-  **Still pending:** `../../cuttle_patterns/embeddings.py`'s loader doesn't yet know about this
-  split — it will load the full 16-d concatenated vector as-is. Needs a follow-up change
-  so Phase 5/6 read `z_u` (the first `num_latents_unsupervised` columns) only, not
-  `z_u`+`z_b` concatenated, once training confirms the split index convention is right.
+  `../../cuttle_patterns/latents.py`'s `split_latent_spaces` now reads that same
+  `num_latents_unsupervised` config value back out to recover `z_u`/`z_b` from the
+  concatenated vector, and `select_cluster_latents` picks `z_u` for `cuttle cluster` —
+  the follow-up this note originally flagged as pending is done.
 
 ## Relationship to existing tracks
 
@@ -427,8 +431,8 @@ path.
 On the `cuttle_patterns` side this needed only the new `../../configs/beast_msps_vae.yaml`
 (`model_class: msps_vae`, mirroring beast's own `configs/msps_vae.yaml`) — `cuttle train`/
 `cuttle predict` already pass `model_class` through opaquely via BEAST's own CLI, no code
-changes required there. The one real follow-up on this side is the `embeddings.py` loader
-change noted above (Phase 5/6 need to read `z_u` only from the concatenated latents file).
+changes required there. The `latents.py` split noted above (Phase 5/6 reading `z_u` only
+from the concatenated latents file) was the one real follow-up on this side, and is done.
 
 **Status as of the second training restart:** implementation complete and unit-tested on
 the CPU-only paths (samplers, datamodule dispatch, model forward/loss/predict_step — see
