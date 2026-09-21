@@ -1,5 +1,12 @@
 # Project Phases
 
+**Doc type:** living design/status narrative — this is where the current design is
+described once; entries here are edited in place as the implementation changes. Contrast
+[DECISIONS.md](DECISIONS.md), an append-only rationale log that points back here for
+mechanism rather than restating it. Phase numbers are stable IDs, assigned once and
+never renumbered — a new phase appends the next integer or a letter suffix (e.g. `2b`,
+`4b`), so existing cross-references (including from DECISIONS.md) stay valid.
+
 ## Goal
 
 Cluster the visual patterns cuttlefish display during social interaction, using an
@@ -71,8 +78,8 @@ without hardcoded paths.
 - `cuttle_patterns/ingest.py` builds the manifest: `find_raw_videos` /
   `read_video_info` (via OpenCV) / `read_blank_frame_indices` / `build_manifest`, one row
   per video with `session_id`, `fish_id`, `video_path`, `blank_frames_path`, `n_frames`,
-  `n_blank_frames`, `fps`, `width`, `height`. Written to
-  `results_dir/manifests/ingest.parquet`.
+  `n_blank_frames`, `fps`, `width`, `height`. Written under `manifests/` (see
+  `cuttle_patterns/paths.py`).
 - Exposed as `cuttle ingest` via the CLI (see below) rather than a bare script.
 - Sanity check implemented: warns (does not fail) if a blank-frame index falls outside
   the video's frame range, or if a video's `.txt` file is missing.
@@ -121,8 +128,8 @@ orchestration in `cuttle_patterns/preprocessing/align.py` and
   over frames with no detected body, warps each frame's rectangle into a fixed canonical
   size (`aspect * canonical_height` × `canonical_height`, default 200×100), and writes
   `{output_dir}/{video_name}.mp4` (the aligned crop video) plus `.csv` (per-frame corner
-  geometry + an `is_interpolated` flag). `output_dir` defaults to
-  `results_dir/rectangles`.
+  geometry + an `is_interpolated` flag). `output_dir` defaults to `rectangles/` (see
+  `cuttle_patterns/paths.py`).
 - `cuttle overlay [same flags]` — QC tool. For each video, if `{video_name}.csv` doesn't
   exist yet, runs the same inscribe logic to produce it; then draws each frame's
   (interpolated) rectangle on the *raw* frame — green if directly detected, orange if
@@ -325,8 +332,8 @@ exposed as `cuttle extract`:
    `candidate_idxs` — upstream's only subsetting knob, a contiguous fractional
    `frame_range`, can't express an arbitrary/non-contiguous allowed-frame set, so a true
    restriction isn't possible by calling that function directly. `frames_per_video`
-   (`-n`, default 1000) is a maximum: a video with fewer surviving candidates just uses
-   all of them, with a printed warning, rather than raising.
+   (`-n`) is a maximum: a video with fewer surviving candidates just uses all of them,
+   with a printed warning, rather than raising.
 
 `beast.preprocess.extraction.export_frames` and `beast.video.compute_video_motion_energy`
 are reused unmodified for exporting frames (with ±1 context frames, matching BEAST's own
@@ -342,10 +349,10 @@ likelihood filtering — keypoint filtering is a required part of this algorithm
 optional one. A video with no matching rectangle-geometry CSV in `--input-dir` (should
 only happen if `cuttle inscribe` was never run for it) is skipped the same way.
 
-Output: per video, `results_dir/beast_frames/{video_name}/img{frame_idx}.png` (anchor
-frames + context) and `selected_frames.csv` (anchor frames only); across all videos, a
-combined frame manifest at `results_dir/manifests/extract.parquet` (`session_id`,
-`fish_id`, `frame_idx`, `image_path`, one row per selected anchor frame).
+Output: per video, every selected anchor frame plus context under `beast_frames/` and a
+`selected_frames.csv` (anchor frames only); across all videos, a combined frame manifest
+(`session_id`, `fish_id`, `frame_idx`, `image_path`, one row per selected anchor frame)
+under `manifests/` (see `cuttle_patterns/paths.py`).
 
 Tests: `tests/preprocessing/test_extract.py`, `tests/cli/test_cmd_extract.py`.
 
@@ -409,30 +416,20 @@ an external reference point for the [embedding eval harness](../cuttle_patterns/
 identity, compared to the from-scratch BEAST/MSPS-VAE backbones above?
 
 `cuttle embed` (`cuttle_patterns/cli/cmd_embed.py`, delegating to `cuttle_patterns/embed.py`
-and the `cuttle_patterns/embedders/` package) runs a frozen DINOv3 ViT
-(`facebook/dinov3-{vits16,vitb16,vitl16}-pretrain-lvd1689m`, via Hugging Face
-`transformers`) over `results_dir/beast_frames` and writes a single combined embeddings
-array + row-aligned manifest, duck-typed as a BEAST model directory — exactly the
-precedent set by the Phase 7 "Supervised classification overlay" entry below — so
+and the `cuttle_patterns/embedders/` package) runs a frozen DINOv3 ViT over
+`results_dir/beast_frames` and writes a single combined embeddings array + row-aligned
+manifest, duck-typed as a BEAST model directory — exactly the precedent set by the
+Phase 7 "Supervised classification overlay" entry below — so
 `cuttle reduce`/`cuttle cluster`/`cuttle serve` need no embedder-specific code. Unlike
 `cuttle predict --save-latents` (one `.npy` per frame), this writes at most a few files
 total per run, since writing millions of tiny files is extremely slow on the external
 hard drive `results_dir` currently lives on.
 
-Four readouts turn the backbone's patch/CLS tokens into a fixed-length vector:
-- `cls` — the CLS token as-is.
-- `meanpatch_uniform`/`meanpatch_taper` — mean of the patch tokens, optionally
-  down-weighting border/corner patches with a raised-cosine radial taper (the same one
-  used for the masked MSPS-VAE's spatial loss weighting).
-- `gram` — a spatially weighted, channel-projected covariance ("Gram matrix") texture
-  descriptor: which feature directions co-vary across positions within a frame,
-  discarding *where* they occur. Requires a one-time fit (a channel projection, fit on a
-  sampled subset of frames) before it can embed anything; `cuttle embed` runs this
-  automatically.
-
-Full design (backbone/readout protocol, DINOv3 specifics, the Gram readout's math and
-design caveats) in [embedder.md](implementation_notes/embedder.md). VGG-19 as a second
-Gram backbone is a planned follow-up, not yet built. Tests: `tests/embedders/`,
+Several readouts turn the backbone's patch/CLS tokens into a fixed-length vector — a
+CLS-token readout, two mean-patch variants, and a Gram-matrix texture descriptor. Full
+design (backbone/readout protocol, exact DINOv3 model ids, the readouts' math and design
+caveats, and the VGG-19 backbone/fusion built as a second backbone on the same protocol)
+in [embedder.md](implementation_notes/embedder.md). Tests: `tests/embedders/`,
 `tests/test_embed.py`, `tests/cli/test_cmd_embed.py`.
 
 ---
@@ -442,26 +439,22 @@ Gram backbone is a planned follow-up, not yet built. Tests: `tests/embedders/`,
 **Goal:** project each frame's BEAST embedding (Phase 4) down to 2D, trying multiple
 hyperparameter settings side by side rather than picking one up front.
 
-- Apply UMAP to the per-frame latents written by `cuttle predict` under
-  `beast_models/{model_dir}/image_predictions/beast_frames/`, sweeping hyperparameters
-  (`n_neighbors`, `min_dist`) across separate runs.
+- Apply UMAP to the per-frame latents written by `cuttle predict`, sweeping
+  hyperparameters (`n_neighbors`, `min_dist`) across separate runs.
 - Exposed as `cuttle reduce --model-name {model_dir}`, via
-  `cuttle_patterns/cli/cmd_reduce.py`. `cuttle_patterns/embeddings.py` (shared with the
-  Phase 6 implementation below) loads every `.npy` latent under a model's
+  `cuttle_patterns/cli/cmd_reduce.py`. `cuttle_patterns/latents.py` (shared with the
+  Phase 6 implementation below) loads every latent under a model's
   `image_predictions/{predictions_name}/latents/` tree into an `(n_frames, latent_dim)`
   array plus row-aligned metadata parsed from each frame's path (`video_name` directory
   → `day`/`tank`/`role`; `img{frame_number}.npy` filename → `frame_number`);
   `cuttle_patterns/reduce.py` wraps `umap.UMAP` and assembles the output frame. Tests:
-  `tests/test_embeddings.py`, `tests/test_reduce.py`, `tests/cli/test_cmd_reduce.py`.
-- Output: one row per frame in `beast_models/{model_dir}/image_predictions/beast_frames/`,
-  with `umap_x`, `umap_y`, and per-frame metadata (`day`, `tank`, `role`, `frame_number`,
-  `video_name`), written to
-  `results_dir/beast_models/{model_dir}/reduce/umap_{hparams}.parquet` — one file per
-  hyperparameter setting (`{hparams}` encodes `n_neighbors`/`min_dist`, e.g.
-  `umap_nn15_md0.1.parquet`), so different UMAP runs can be compared rather than
-  overwriting each other. The `reduce/` subdirectory (rather than `umap/`) is deliberately
+  `tests/test_latents.py`, `tests/test_reduce.py`, `tests/cli/test_cmd_reduce.py`.
+- Output: one row per frame, with `umap_x`, `umap_y`, and per-frame metadata, written
+  under the model's `reduce/` directory (see `cuttle_patterns/paths.py`) — one file per
+  hyperparameter setting, so different UMAP runs can be compared rather than overwriting
+  each other. The `reduce/` subdirectory (rather than `umap/`) is deliberately
   method-agnostic, so a non-UMAP reduction added later (e.g. t-SNE) can live alongside it
-  as `reduce/tsne_{hparams}.parquet` without a directory-layout change.
+  without a directory-layout change.
 
 ---
 
@@ -471,11 +464,10 @@ hyperparameter settings side by side rather than picking one up front.
 the Phase 7 visualization to filter/color by.
 
 - Run clustering (k-means first) on the raw BEAST embeddings from Phase 4 (the same
-  `image_predictions/beast_frames/` latents Phase 5 reads, via the same
-  `cuttle_patterns/embeddings.py:load_latents`) — not the 2D UMAP projection — since
-  it's more principled to cluster in the space the embedding model actually produces
-  rather than a lossy 2D projection of it. Revisit if these clusters look unstable
-  relative to structure visible in the UMAP projection.
+  latents Phase 5 reads, via the same `cuttle_patterns/latents.py:load_latents`) — not
+  the 2D UMAP projection — since it's more principled to cluster in the space the
+  embedding model actually produces rather than a lossy 2D projection of it. Revisit if
+  these clusters look unstable relative to structure visible in the UMAP projection.
 - Exposed as `cuttle cluster --model-name {model_dir} --n-clusters {k}`, via
   `cuttle_patterns/cli/cmd_cluster.py`. `cuttle_patterns/cluster.py` wraps
   `sklearn.cluster.KMeans` (`run_kmeans`) and assembles the output frame
@@ -484,18 +476,16 @@ the Phase 7 visualization to filter/color by.
   rather than a silently-accepted unimplemented string. `--n-clusters` is required (no
   universal default, unlike UMAP's hyperparameters); `--random-state` defaults to 42.
   Tests: `tests/test_cluster.py`, `tests/cli/test_cmd_cluster.py`.
-- Output: one row per frame in `beast_models/{model_dir}/image_predictions/beast_frames/`,
-  with a `cluster` label plus the same `day`/`tank`/`role`/`frame_number`/`video_name`
-  metadata as the Phase 5 output, written to
-  `results_dir/beast_models/{model_dir}/clusters/{method}_{hparams}.parquet` (`{hparams}`
-  encodes `n_clusters`, e.g. `clusters/kmeans_k10.parquet`) — the same one-row-per-frame
-  shape as the Phase 5 output, so cluster labels are just another joinable attribute
-  rather than a replacement for the UMAP coordinates.
+- Output: one row per frame, with a `cluster` label plus the same per-frame metadata as
+  the Phase 5 output, written under the model's `clusters/` directory (see
+  `cuttle_patterns/paths.py`) — the same one-row-per-frame shape as the Phase 5 output,
+  so cluster labels are just another joinable attribute rather than a replacement for
+  the UMAP coordinates.
 - Qualitative QC: `cuttle clusterview --model-name {model_dir} --cluster-run {method}_{hparams}`,
   via `cuttle_patterns/cli/cmd_clusterview.py`, promoted from the earlier standalone
   `scripts/plot_cluster_frames.py`. `cuttle_patterns/visualization/cluster_frames.py`
   samples `--n-frames` member frames per cluster and plots them in a grid, one PNG per
-  cluster, to `results_dir/beast_models/{model_dir}/clusters/{method}_{hparams}/`. Tests:
+  cluster, alongside the cluster parquet it reads. Tests:
   `tests/visualization/test_cluster_frames.py`, `tests/cli/test_cmd_clusterview.py`.
 
 ---
@@ -505,8 +495,8 @@ the Phase 7 visualization to filter/color by.
 **Goal:** a UI to explore the embedding — a dot per frame, hover shows the corresponding
 aligned frame image, colored by cluster.
 
-- Built on Plotly (specific app framework — Dash vs. something lighter — still to be
-  decided when we get here, see [DECISIONS.md](DECISIONS.md)).
+- Built on Bokeh, via a programmatic `Server` — see the "UI framework: Bokeh" entry in
+  [DECISIONS.md](DECISIONS.md) for why (supersedes the originally-planned Plotly).
 - Must support swapping in different embeddings/projections (BEAST now, others later)
   without rebuilding the UI.
 - Likely filters: by session, by fish, by cluster.
@@ -547,7 +537,7 @@ forward hook so it comes for free alongside the predictions above — no second 
 pass) is written per frame to
 `results_dir/beast_models/{model_name}/image_predictions/{predictions_name}/latents/` —
 exactly `beast predict --save-latents`'s own layout — plus a minimal `config.yaml`
-(`model.model_class: classifier`, so `embeddings.split_latent_spaces` takes its ordinary
+(`model.model_class: classifier`, so `latents.split_latent_spaces` takes its ordinary
 single-latent-space path, the same as any non-`msps_vae` model). This makes
 `{model_name}` an ordinary entry in `results_dir/beast_models/` to every downstream
 tool — `cuttle reduce --model-name {model_name}` and `cuttle cluster --model-name

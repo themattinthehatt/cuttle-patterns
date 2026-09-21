@@ -8,10 +8,7 @@ import torch
 from torch import nn
 
 from cuttle_patterns.embedders.vgg import (
-    LAYER_TO_CHANNELS,
-    LAYER_TO_CODE,
-    LAYER_TO_INDEX,
-    LAYER_TO_STRIDE,
+    VGG_LAYERS,
     MultiLayerVGGBackbone,
     VGGBackbone,
 )
@@ -21,8 +18,8 @@ def _build_fake_vgg19_features() -> nn.Sequential:
     """Tiny stand-in for `vgg19().features`: same conv/relu/maxpool layout, few channels.
 
     Matches real VGG-19's per-block conv count (2, 2, 4, 4, 4 -- confirmed by listing
-    `torchvision.models.vgg19().features` directly), so `LAYER_TO_INDEX` slices this
-    fake at the same positions it slices the real model.
+    `torchvision.models.vgg19().features` directly), so `VGG_LAYERS`' indices slice this
+    fake at the same positions they slice the real model.
     """
     block_conv_counts = [2, 2, 4, 4, 4]
     channel_counts = [3, 2, 2, 2, 2, 2]
@@ -66,8 +63,9 @@ class TestVGGBackbone:
         metadata = backbone.metadata()
 
         # Assert -- relu3_1's stride is 4, so a 32px input yields an 8x8 grid; channel
-        # count here is the fake model's real 2, not LAYER_TO_CHANNELS' 256 (that dict
-        # describes the real vgg19, which this fake does not reproduce numerically)
+        # count here is the fake model's real 2, not VGG_LAYERS['relu3_1'].channels'
+        # 256 (that describes the real vgg19, which this fake does not reproduce
+        # numerically)
         assert backbone.key == 'vgg19_3_32'
         assert x.shape == (2, 3, 32, 32)
         assert tokens.cls is None
@@ -93,7 +91,7 @@ class TestVGGBackbone:
         backbone = VGGBackbone('relu1_1', resolution=16, device=torch.device('cpu'))
 
         # Assert -- relu1_1 is features[1]: exactly Conv2d then ReLU, nothing more
-        assert len(backbone.model) == LAYER_TO_INDEX['relu1_1'] + 1
+        assert len(backbone.model) == VGG_LAYERS['relu1_1'].index + 1
 
 
 class TestMultiLayerVGGBackbone:
@@ -156,7 +154,7 @@ class TestMultiLayerVGGBackbone:
         metadata = backbone.metadata()
 
         # Assert -- relu2_1's stride is 2 (16x16 grid at 32px), relu4_1's is 8 (4x4);
-        # channel counts are the fake model's real 2, not LAYER_TO_CHANNELS'
+        # channel counts are the fake model's real 2, not VGG_LAYERS[...].channels'
         assert len(tokens) == 2
         assert tokens[0].cls is None and tokens[1].cls is None
         assert tokens[0].patches.shape == (2, 256, 2)
@@ -189,24 +187,20 @@ class TestMultiLayerVGGBackbone:
         # sliced into contiguous, non-overlapping pieces -- not each layer independently
         # re-running from position 0, which would instead sum to a much larger total
         total_ops = sum(len(segment) for segment in backbone.segments)
-        assert total_ops == LAYER_TO_INDEX['relu5_1'] + 1
+        assert total_ops == VGG_LAYERS['relu5_1'].index + 1
 
 
 class TestLayerTables:
-    """Test the module-level layer lookup tables."""
+    """Test the module-level VGG_LAYERS lookup table."""
 
-    def test_layer_tables_share_the_same_five_canonical_keys(self):
+    def test_layer_tables_has_the_five_canonical_keys(self):
         # Assert
-        assert (
-            set(LAYER_TO_INDEX) == set(LAYER_TO_CHANNELS) == set(LAYER_TO_STRIDE)
-            == set(LAYER_TO_CODE)
-        )
-        assert set(LAYER_TO_INDEX) == {'relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1'}
+        assert set(VGG_LAYERS) == {'relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1'}
 
     def test_layer_tables_code_is_the_layer_s_block_number(self):
         # Assert -- single digits, so MultiLayerVGGBackbone can concatenate them (e.g.
         # '345' for relu3_1+relu4_1+relu5_1) into one readable model_name segment
-        assert LAYER_TO_CODE == {
+        assert {layer: info.code for layer, info in VGG_LAYERS.items()} == {
             'relu1_1': '1',
             'relu2_1': '2',
             'relu3_1': '3',
@@ -216,7 +210,7 @@ class TestLayerTables:
 
     def test_layer_tables_match_gatys_et_al_channel_counts(self):
         # Assert -- confirmed against a live torchvision.models.vgg19().features listing
-        assert LAYER_TO_CHANNELS == {
+        assert {layer: info.channels for layer, info in VGG_LAYERS.items()} == {
             'relu1_1': 64,
             'relu2_1': 128,
             'relu3_1': 256,
@@ -226,7 +220,7 @@ class TestLayerTables:
 
     def test_layer_tables_stride_doubles_after_each_block(self):
         # Assert
-        assert LAYER_TO_STRIDE == {
+        assert {layer: info.stride for layer, info in VGG_LAYERS.items()} == {
             'relu1_1': 1,
             'relu2_1': 2,
             'relu3_1': 4,

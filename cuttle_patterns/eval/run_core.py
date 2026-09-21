@@ -1,7 +1,7 @@
 """Command-line entry point for the eval harness's core (v1) scoreboard.
 
-Deliberately not wired into the `cuttle` CLI — see `docs/eval_plan.md`. Run it
-directly from the repo root, e.g.:
+Deliberately not wired into the `cuttle` CLI — see
+`docs/implementation_notes/eval_plan.md`. Run it directly from the repo root, e.g.:
 
     python -m cuttle_patterns.eval.run_core \\
         --classifier-name iter-1.1_classifier_d512 \\
@@ -18,10 +18,17 @@ from cuttle_patterns.config import load_config
 from cuttle_patterns.eval.build_manifest import build_eval_manifest
 from cuttle_patterns.eval.load_embeddings import EmbedderSpec
 from cuttle_patterns.eval.report import run_report, write_report
+from cuttle_patterns.latents import (
+    LATENT_SPACE_ALL,
+    LATENT_SPACE_BACKGROUND,
+    LATENT_SPACE_UNSUPERVISED,
+)
 from cuttle_patterns.paths import BEAST_MODELS_RELPATH, EVAL_RELPATH
 
-MSPS_VAE_SUBSPACES = ('unsupervised', 'background', 'all')
-MSPS_VAE_SUBSPACE_LABELS = {'unsupervised': 'z_u', 'background': 'z_b', 'all': 'z_all'}
+MSPS_VAE_SUBSPACES = (LATENT_SPACE_UNSUPERVISED, LATENT_SPACE_BACKGROUND, LATENT_SPACE_ALL)
+MSPS_VAE_SUBSPACE_LABELS = {
+    LATENT_SPACE_UNSUPERVISED: 'z_u', LATENT_SPACE_BACKGROUND: 'z_b', LATENT_SPACE_ALL: 'z_all',
+}
 
 
 def build_specs(results_dir: Path, model_arg: str) -> list[EmbedderSpec]:

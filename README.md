@@ -24,7 +24,7 @@ conda activate cuttle
 pip install -e ".[dev]"
 ```
 
-`beast-backbones v2.0.0` (required) isn't on PyPI yet, so install it from a git clone first — see 
+`beast-backbones v2.0.0` (required) isn't on PyPI yet, so install it from a git clone first — see
 the [BEAST README](https://github.com/paninski-lab/beast#installation) for the exact steps
 (`pip install lightning poetry-core` then `pip install -e . --no-build-isolation`).
 
@@ -44,27 +44,28 @@ results_dir: /path/to/cuttle/results
 
 ## Pipeline: preprocessing
 
-The first few steps after `cuttle setup`, run in order. Every subcommand reads
+The steps below run in order after `cuttle setup`. Every subcommand reads
 `data_dir`/`results_dir` from the config file by default; override either with
-`--data-dir`/`--results-dir` if needed.
+`--data-dir`/`--results-dir` if needed. Output paths mentioned below are relative to
+`results_dir` — see `cuttle_patterns/paths.py` for the exact on-disk layout of every
+pipeline stage's output.
 
-### 1. `cuttle ingest`
+### `cuttle ingest`
 
 Scans `data_dir` for raw `Day{day}_Tank{tank}_Cuttle{n}_{role}_crop.mp4`/
 `_black_frames.txt` pairs and writes a manifest of what's there (frame counts, fps,
-resolution, flagged-blank counts) to `results_dir/manifests/ingest.parquet`.
+resolution, flagged-blank counts) under `manifests/`.
 
 ```bash
 cuttle ingest
 ```
 
-### 2. `cuttle inscribe`
+### `cuttle inscribe`
 
 Inscribes an egocentric rectangle in the cuttlefish's body on every frame, then warps it
-into a fixed-size, upright crop video. For each raw video, writes
-`results_dir/rectangles/{video_name}.mp4` (the aligned crop) and `{video_name}.csv`
-(per-frame rectangle corners plus an `is_interpolated` flag for frames where nothing was
-detected directly and the rectangle had to be filled in).
+into a fixed-size, upright crop video. For each raw video, writes the aligned crop and a
+`.csv` of per-frame rectangle corners (plus an `is_interpolated` flag for frames where
+nothing was detected directly and the rectangle had to be filled in) under `rectangles/`.
 
 ```bash
 cuttle inscribe
@@ -86,13 +87,12 @@ It runs in one of two modes, chosen automatically per video:
 
 Either mode can still leave the rectangle jittering frame-to-frame during rapid body
 motion (fin beats in particular); the corner trajectory is smoothed to damp this, via
-either a Gaussian filter (`--smoothing-sigma`, standard deviation in frames, 2.0 if
-given with no value — **the default if neither flag is given**) or a centered rolling
-median (`--smoothing-window`, frames, 9 if given with no value; 1 disables smoothing) —
-the two are mutually exclusive. The Gaussian tracks continuous, quasi-periodic jitter
-(e.g. fin beats) more smoothly since it blends the whole window rather than snapping to
-one observed value; the median is more robust to an occasional single-frame garbage
-detection, since it rejects rather than blends it in.
+either a Gaussian filter (`--smoothing-sigma`) or a centered rolling median
+(`--smoothing-window`) — mutually exclusive, see `--help` for defaults. The Gaussian
+tracks continuous, quasi-periodic jitter (e.g. fin beats) more smoothly since it blends
+the whole window rather than snapping to one observed value; the median is more robust
+to an occasional single-frame garbage detection, since it rejects rather than blends it
+in.
 
 To process one video at a time (e.g. while iterating on `--thresh`/`--aspect`), use
 `--video-path`, optionally paired with an explicit `--pose-path`:
@@ -106,7 +106,7 @@ Pass `--skip-existing` to leave a video alone (no re-inscription) if its
 `{video_name}.mp4`/`.csv` already exist in `output_dir`, so a batch run can be safely
 re-run over a directory that's only partially processed.
 
-### 3. `cuttle overlay` (optional QC)
+### `cuttle overlay` (optional QC)
 
 Draws each frame's (interpolated) rectangle on top of the corresponding *raw* frame —
 green if directly detected, orange if interpolated — so inscription quality can be
@@ -125,16 +125,16 @@ keypoints are left undrawn rather than interpolated.
 cuttle overlay
 ```
 
-Writes `results_dir/rectangles/{video_name}_overlay.mp4`, H.264-encoded (via `ffmpeg`)
-since these are full raw-resolution videos and can otherwise get large; tune size vs.
-quality with `--crf` (lower is higher quality/larger file, default 28). As with `cuttle
-inscribe`, pass `--skip-existing` to leave a video's `{video_name}_overlay.mp4` alone if
-it already exists, rather than re-encoding it.
+Writes an `_overlay.mp4` alongside the aligned crop under `rectangles/`, H.264-encoded
+(via `ffmpeg`) since these are full raw-resolution videos and can otherwise get large;
+tune size vs. quality with `--crf` (lower is higher quality/larger file). As
+with `cuttle inscribe`, pass `--skip-existing` to leave an already-written overlay video
+alone rather than re-encoding it.
 
-### 4. `cuttle extract`
+### `cuttle extract`
 
 Selects a diverse, representative set of still frames from the aligned crop videos
-(`results_dir/rectangles/{video_name}.mp4`) to train BEAST (Phase 4) on. Per video:
+(under `rectangles/`) to train BEAST (Phase 4) on. Per video:
 
 1. Remove frames that are blank, have any tail/neck keypoint likelihood below 0.9, or
    have a rectangle (from `cuttle inscribe`) whose long edge is less than 50% of the
@@ -158,15 +158,15 @@ filtering are required parts of the algorithm here, not an optional refinement l
 alongside the video by `cuttle inscribe`), or a missing blank-frames `.txt` in `data_dir`
 is skipped/warned about rather than silently including unfiltered frames.
 
-For each video, writes `results_dir/beast_frames/{video_name}/img{frame_idx}.png` for
-every selected anchor frame plus its immediate neighbors (context for BEAST's temporal
-training), and a `selected_frames.csv` listing just the anchor frames — matching BEAST's
-own `extract_frames` output layout. Across all videos, also writes a combined
-`results_dir/manifests/extract.parquet` (`session_id`, `fish_id`, `frame_idx`,
-`image_path`, one row per selected anchor frame).
+For each video, writes every selected anchor frame plus its immediate neighbors
+(context for BEAST's temporal training) under `beast_frames/`, and a
+`selected_frames.csv` listing just the anchor frames — matching BEAST's own
+`extract_frames` output layout. Across all videos, also writes a combined manifest
+(`session_id`, `fish_id`, `frame_idx`, `image_path`, one row per selected anchor frame)
+under `manifests/`.
 
-`-n`/`--frames-per-video` caps the number of anchor frames selected per video (default 1000) — 
-a maximum, not an exact count: a video with fewer surviving candidate frames than
+`-n`/`--frames-per-video` caps the number of anchor frames selected per video — a
+maximum, not an exact count: a video with fewer surviving candidate frames than
 that just uses all of them, with a printed warning. As with the earlier steps,
 `--skip-existing` skips a video whose `beast_frames/{video_name}/selected_frames.csv`
 already exists, and `--video-path`/`--pose-path` process a single video against an
@@ -174,7 +174,7 @@ explicit pose CSV instead of scanning `--input-dir` (default `results_dir/rectan
 
 ## Pipeline: extract embeddings
 
-### 5. `cuttle train` / `cuttle predict`
+### `cuttle train` / `cuttle predict`
 
 Thin wrappers around BEAST's own `beast train`/`beast predict` CLI (`beast-backbones`
 must be installed, which it is as a dependency of this package) — `cuttle` just resolves
@@ -192,8 +192,8 @@ ViT + MAE + temporal-contrastive architecture that's the eventual target (see
 [docs/DECISIONS.md](docs/DECISIONS.md)), so it's the first backbone trained to get the
 rest of the pipeline running end to end; a ViT config will follow once that's validated.
 
-`cuttle train` saves to `results_dir/beast_models/{model_name}` (`--model-name` is
-required, no default); `cuttle predict` looks a model back up by that same name. Both
+`cuttle train` saves under `beast_models/{model_name}` (`--model-name` is required, no
+default); `cuttle predict` looks a model back up by that same name. Both
 default `--input-dir` to `results_dir/beast_frames` (i.e. the training-frame set from
 step 4, not full videos — full-video inference is a later step, once a checkpoint is
 trained). `--gpus`/`--nodes`/`--overrides` on `cuttle train`, and `--batch-size`/
@@ -204,7 +204,7 @@ straight through to BEAST's own flags of the same purpose.
 default — per-frame embeddings as `latents/{...}/{frame_stem}.npy` when
 `--save-latents` is passed, reconstructed images when `--save-reconstructions` is.
 
-### 6. `cuttle embed`
+### `cuttle embed`
 
 Runs a frozen, pretrained DINOv3 ViT over exported frames — no training required — as an
 alternative embedding source alongside `cuttle train`/`cuttle predict`'s from-scratch
@@ -218,12 +218,14 @@ cuttle embed --backbone vitb16 --resolution 224 --readout cls
 `--backbone` (`vits16`/`vitb16`/`vitl16`) × `--resolution` (any multiple of 16, e.g.
 224/448) × `--readout` (`cls`/`meanpatch_uniform`/`meanpatch_taper`/`gram` — the last
 configurable via `--gram-k`/`--gram-weights`) select the embedder; `--model-name`
-defaults to `{backbone}_{resolution}_{readout name}` (e.g. `dinov3_vitb16_224_cls`).
+defaults to `{backbone key}_{readout name}` (e.g. `dinov3_vitb16_224_cls` — see
+[docs/implementation_notes/embedder.md](docs/implementation_notes/embedder.md) for the
+full key format, including VGG-19).
 
-Writes to `results_dir/beast_models/{model_name}/`, duck-typed as a BEAST model
-directory — same downstream contract as `cuttle predict --save-latents`, but as a single
-combined `embeddings.npy` + `manifest.parquet` per run rather than one file per frame
-(writing millions of tiny files is extremely slow on some filesystems) — so
+Writes under `beast_models/{model_name}/`, duck-typed as a BEAST model directory — same
+downstream contract as `cuttle predict --save-latents`, but as a single combined
+`embeddings.npy` + `manifest.parquet` per run rather than one file per frame (writing
+millions of tiny files is extremely slow on some filesystems) — so
 `cuttle reduce`/`cuttle cluster`/`cuttle serve` work against it exactly like a trained
 BEAST checkpoint. See
 [docs/implementation_notes/embedder.md](docs/implementation_notes/embedder.md) for the
@@ -231,7 +233,7 @@ full embedder design.
 
 ## Pipeline: post-processing
 
-### 7. `cuttle reduce`
+### `cuttle reduce`
 
 Projects the per-frame latents from `cuttle predict --save-latents` to 2D via UMAP, so
 they can be compared across hyperparameter settings and, eventually, visualized.
@@ -240,17 +242,14 @@ they can be compared across hyperparameter settings and, eventually, visualized.
 cuttle reduce --model-name resnet-ae-v1
 ```
 
-Reads every `.npy` file under
-`results_dir/beast_models/{model_name}/image_predictions/{predictions_name}/latents/`
-(`--predictions-name` defaults to `beast_frames`, matching `cuttle predict`'s default
-`--input-dir` stem) and writes one row per frame — `umap_x`, `umap_y`, plus `day`,
-`tank`, `role`, `frame_number`, `video_name` parsed from each frame's path — to
-`results_dir/beast_models/{model_name}/reduce/umap_{hparams}.parquet`. `{hparams}`
-encodes `--n-neighbors`/`--min-dist` (default 15/0.1), so different sweeps land in
-separate files instead of overwriting each other; `--metric`/`--random-state` (default
-`euclidean`/42) are also exposed but aren't part of the filename.
+Reads every latent `cuttle predict --save-latents` wrote for the model
+(`--predictions-name` defaults to `beast_frames`) and writes one row per frame —
+`umap_x`, `umap_y`, plus per-frame metadata — under the model's `reduce/` directory.
+`--n-neighbors`/`--min-dist` are encoded into the output filename so different sweeps
+don't overwrite each other; `--metric`/`--random-state` are also exposed but aren't
+part of the filename — see `--help` for defaults.
 
-### 8. `cuttle cluster`
+### `cuttle cluster`
 
 Assigns a discrete cluster label to every frame, clustering the raw per-frame latents
 directly (not the 2D UMAP projection from `cuttle reduce`) — k-means is the only method
@@ -260,15 +259,14 @@ so far.
 cuttle cluster --model-name resnet-ae-v1 --n-clusters 10
 ```
 
-Reads the same `.npy` latents `cuttle reduce` does (`--predictions-name`, default
+Reads the same latents `cuttle reduce` does (`--predictions-name`, default
 `beast_frames`, selects which predicted frame set) and writes one row per frame —
-`cluster`, plus the same `day`/`tank`/`role`/`frame_number`/`video_name` metadata — to
-`results_dir/beast_models/{model_name}/clusters/{method}_{hparams}.parquet` (e.g.
-`clusters/kmeans_k10.parquet`). `--n-clusters` is required (no sensible universal
-default); `{hparams}` encodes it so different sweeps land in separate files;
-`--random-state` (default 42) is also exposed but isn't part of the filename.
+`cluster`, plus per-frame metadata — under the model's `clusters/` directory.
+`--n-clusters` is required (no sensible universal default) and is encoded into the
+output filename so different sweeps don't overwrite each other; `--random-state` is
+also exposed but isn't part of the filename.
 
-### 9. `cuttle clusterview`
+### `cuttle clusterview`
 
 For each distinct `cluster` label in a `cuttle cluster` output, randomly samples member
 frames and plots them in a grid, one PNG per cluster — a quick visual QC pass before
@@ -278,14 +276,12 @@ reaching for the interactive explorer.
 cuttle clusterview --model-name resnet-ae-v1 --cluster-run kmeans_k10
 ```
 
-Reads `results_dir/beast_models/{model_name}/clusters/{cluster_run}.parquet` (the file
-`cuttle cluster` writes) and writes one figure per cluster to
-`results_dir/beast_models/{model_name}/clusters/{cluster_run}/cluster_{label}.png`.
-`--n-frames` (default 12) sets how many member frames are sampled per cluster;
-`--n-cols` (default 4) sets the grid width, with row count derived from `--n-frames`;
-`--seed` (default 0) controls the per-cluster sampling.
+Reads the parquet `cuttle cluster` wrote for `--cluster-run` and writes one PNG per
+cluster alongside it. `--n-frames` sets how many member frames are sampled per cluster;
+`--n-cols` sets the grid width, with row count derived from `--n-frames`; `--seed`
+controls the per-cluster sampling — see `--help` for defaults.
 
-### 10. `cuttle serve`
+### `cuttle serve`
 
 Launches the interactive embedding explorer: a Bokeh dashboard with a dot per frame,
 hover to see the corresponding aligned frame image, colored by any UMAP reduction's
@@ -297,5 +293,5 @@ cluster/classification attributes. The Model dropdown lists every entry under
 cuttle serve
 ```
 
-`--port` (default 5006) sets the port the app and its frame-image route are served on;
-`--no-show` skips auto-opening a browser tab.
+`--port` sets the port the app and its frame-image route are served on; `--no-show`
+skips auto-opening a browser tab.
