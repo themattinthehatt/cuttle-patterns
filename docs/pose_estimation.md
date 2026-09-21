@@ -13,7 +13,7 @@ pip-installed into it (kept separate from this repo's own `cuttle` env).
 
 ## Labeling
 
-20 frames labeled from each video (tail, neck) via the Lightning Pose app, sampled from a subset 
+20 frames labeled from each video (tail, neck) via the Lightning Pose app, sampled from a subset
 of the videos in Day1-Day3 — 720 labeled frames total.
 
 ## Training

@@ -24,7 +24,7 @@ conda activate cuttle
 pip install -e ".[dev]"
 ```
 
-`beast-backbones v2.0.0` (required) isn't on PyPI yet, so install it from a git clone first — see 
+`beast-backbones v2.0.0` (required) isn't on PyPI yet, so install it from a git clone first — see
 the [BEAST README](https://github.com/paninski-lab/beast#installation) for the exact steps
 (`pip install lightning poetry-core` then `pip install -e . --no-build-isolation`).
 
@@ -44,10 +44,11 @@ results_dir: /path/to/cuttle/results
 
 ## Pipeline: preprocessing
 
-The steps below run in order after `cuttle setup`. Every subcommand reads `data_dir`/`results_dir` 
-from the config file by default; override either with `--data-dir`/`--results-dir` if needed.
-Output paths mentioned below are relative to `results_dir` — see
-`cuttle_patterns/paths.py` for the exact on-disk layout of every pipeline stage's output.
+The steps below run in order after `cuttle setup`. Every subcommand reads
+`data_dir`/`results_dir` from the config file by default; override either with
+`--data-dir`/`--results-dir` if needed. Output paths mentioned below are relative to
+`results_dir` — see `cuttle_patterns/paths.py` for the exact on-disk layout of every
+pipeline stage's output.
 
 ### `cuttle ingest`
 
