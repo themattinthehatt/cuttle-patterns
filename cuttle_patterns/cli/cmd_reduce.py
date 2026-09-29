@@ -8,6 +8,7 @@ from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
 from cuttle_patterns.config import load_config
 from cuttle_patterns.latents import LATENT_SPACE_ALL, load_latents, split_latent_spaces
+from cuttle_patterns.metadata import attach_individual_column
 from cuttle_patterns.reduce import (
     DEFAULT_METRIC,
     DEFAULT_MIN_DIST,
@@ -103,6 +104,7 @@ def cmd_reduce(args: argparse.Namespace) -> None:
 
     try:
         X, meta = load_latents(latents_dir)
+        meta = attach_individual_column(meta)
         subspaces = split_latent_spaces(X, model_dir)
     except (FileNotFoundError, ValueError) as e:
         print(f'Error: {e}')

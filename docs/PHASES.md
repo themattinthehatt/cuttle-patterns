@@ -449,6 +449,12 @@ hyperparameter settings side by side rather than picking one up front.
   → `day`/`tank`/`role`; `img{frame_number}.npy` filename → `frame_number`);
   `cuttle_patterns/reduce.py` wraps `umap.UMAP` and assembles the output frame. Tests:
   `tests/test_latents.py`, `tests/test_reduce.py`, `tests/cli/test_cmd_reduce.py`.
+- The per-frame metadata also carries an `individual` column (animal ID: residents
+  `R1`-`R6`, intruders `I1`-`I6`), which video names don't encode. It's looked up by
+  `(day, tank, role)` from the packaged `cuttle_patterns/assets/identity_mapping.csv`
+  via `cuttle_patterns/metadata.py:attach_individual_column`, so the visualizer can color by
+  animal. Only reduce output carries it; cluster files join onto it by
+  `(video_name, frame_number)`.
 - Output: one row per frame, with `umap_x`, `umap_y`, and per-frame metadata, written
   under the model's `reduce/` directory (see `cuttle_patterns/paths.py`) — one file per
   hyperparameter setting, so different UMAP runs can be compared rather than overwriting

@@ -89,8 +89,11 @@ class TestCmdReduce:
         df = pd.read_parquet(output_path)
         assert len(df) == 5
         assert list(df.columns) == [
-            'umap_x', 'umap_y', 'day', 'tank', 'role', 'frame_number', 'video_name',
+            'umap_x', 'umap_y', 'day', 'tank', 'role', 'individual', 'frame_number',
+            'video_name',
         ]
+        # Day1_Tank2 resident is R2 in the packaged identity mapping
+        assert (df['individual'] == 'R2').all()
 
     def test_cmd_reduce_overwrites_existing_output(
         self,

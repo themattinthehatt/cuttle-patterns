@@ -15,7 +15,16 @@ DEFAULT_MIN_DIST = 0.1
 DEFAULT_METRIC = 'euclidean'
 DEFAULT_RANDOM_STATE = 42
 
-UMAP_OUTPUT_COLUMNS = ['umap_x', 'umap_y', 'day', 'tank', 'role', 'frame_number', 'video_name']
+UMAP_OUTPUT_COLUMNS = [
+    'umap_x',
+    'umap_y',
+    'day',
+    'tank',
+    'role',
+    'individual',
+    'frame_number',
+    'video_name',
+]
 
 
 def run_umap(
@@ -65,11 +74,12 @@ def build_umap_dataframe(meta: pd.DataFrame, umap_xy: np.ndarray) -> pd.DataFram
 
     Args:
         meta: per-frame metadata from `cuttle_patterns.latents.load_latents`, with
-            columns `video_name`, `day`, `tank`, `role`, `frame_number`.
+            columns `video_name`, `day`, `tank`, `role`, `frame_number`, plus the
+            `individual` column `cuttle_patterns.metadata.attach_individual_column` adds.
         umap_xy: array of shape (len(meta), 2), row-aligned with meta.
 
     Returns:
-        DataFrame with columns `umap_x`, `umap_y`, `day`, `tank`, `role`,
+        DataFrame with columns `umap_x`, `umap_y`, `day`, `tank`, `role`, `individual`,
         `frame_number`, `video_name`.
     """
     out = meta.copy()
