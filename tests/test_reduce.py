@@ -50,6 +50,7 @@ class TestBuildUmapDataframe:
             'day': [1],
             'tank': [2],
             'role': ['Resident'],
+            'individual': ['R2'],
             'frame_number': [7],
         })
         umap_xy = np.array([[0.5, -0.5]])
@@ -59,7 +60,9 @@ class TestBuildUmapDataframe:
 
         # Assert
         assert list(df.columns) == [
-            'umap_x', 'umap_y', 'day', 'tank', 'role', 'frame_number', 'video_name',
+            'umap_x', 'umap_y', 'day', 'tank', 'role', 'individual', 'frame_number',
+            'video_name',
         ]
+        assert df['individual'].iloc[0] == 'R2'
         assert df['umap_x'].iloc[0] == pytest.approx(0.5)
         assert df['umap_y'].iloc[0] == pytest.approx(-0.5)
