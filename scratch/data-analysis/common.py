@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from cuttle_patterns import paths
+from cuttle_patterns.config import load_config
 from cuttle_patterns.latents import (
     load_latents,
     parse_video_name,
@@ -35,7 +36,8 @@ from cuttle_patterns.metadata import attach_individual_column
 
 logger = logging.getLogger(__name__)
 
-RESULTS_DIR = Path('/media/mattw/CUTTLE/results')
+# same `results_dir` every `cuttle` subcommand reads (~/.cuttle-patterns/config.yaml)
+RESULTS_DIR = load_config().results_dir
 CACHE_DIR = Path(__file__).parent / '.cache'
 ANALYSIS_RELPATH = Path('analysis')
 SUBSETS_RELPATH = ANALYSIS_RELPATH / 'subsets'
