@@ -6,7 +6,9 @@ pose models (see docs/pose_estimation.md), scores each frame by how much the mod
 disagree with each other (summed x/y variance per keypoint, maxed over keypoints),
 excludes frames that are already blank-flagged or already labeled, and writes QC images
 for the highest-disagreement frames -- one folder per video under --output-dir -- so they
-can be paged through and manually added to the labeling queue.
+can be paged through and manually added to the labeling queue. To keep the labeled set
+balanced, a few randomly drawn mid-disagreement frames (by default 45th-55th percentile of
+the video's candidate scores) are appended after the top-k, marked `_mid` in the filename.
 
 Not yet promoted into cuttle_patterns/ + the `cuttle` CLI; run directly, e.g.:
 
@@ -15,6 +17,7 @@ Not yet promoted into cuttle_patterns/ + the `cuttle` CLI; run directly, e.g.:
 """
 
 import argparse
+import zlib
 from pathlib import Path
 
 import cv2
@@ -27,6 +30,9 @@ from cuttle_patterns.preprocessing.pose import KEYPOINTS, load_pose_predictions
 
 DEFAULT_PROJECT_DIR = Path('/media/mattw/CUTTLE/pose-estimation/cuttle-test')
 DEFAULT_TOP_K = 100
+DEFAULT_N_MID = 10
+DEFAULT_MID_PERCENTILES = (45.0, 55.0)
+DEFAULT_SEED = 0
 
 # cycled by position in --models, so a given model keeps the same color across every
 # video's QC images regardless of which subset of models actually has predictions there
@@ -148,6 +154,51 @@ def select_top_frames(
     ]
 
 
+def select_mid_frames(
+    scores: np.ndarray,
+    excluded_indices: set[int],
+    n_frames: int,
+    percentile_range: tuple[float, float],
+    rng: np.random.Generator,
+    idx_rank_start: int,
+) -> list[tuple[int, int, float]]:
+    """Randomly sample frames whose disagreement score is in a middle percentile band.
+
+    Percentiles are computed over the non-excluded candidate frames only, so the band
+    is relative to the frames that could actually have been selected.
+
+    Args:
+        scores: one score per frame, indexed by frame index.
+        excluded_indices: frame indices to drop (blank, already-labeled, or already
+            selected as top-k).
+        n_frames: number of frames to sample (fewer if the band has fewer frames).
+        percentile_range: (low, high) percentiles, inclusive, in [0, 100].
+        rng: random generator used for sampling.
+        idx_rank_start: rank assigned to the first sampled frame, so ranks continue on
+            from the top-k selection.
+
+    Returns:
+        (rank, frame_idx, score) tuples, ordered by descending score.
+    """
+    idx_candidates = np.array(
+        [frame_idx for frame_idx in range(len(scores)) if frame_idx not in excluded_indices]
+    )
+    if len(idx_candidates) == 0:
+        return []
+
+    scores_candidates = scores[idx_candidates]
+    low, high = np.percentile(scores_candidates, percentile_range)
+    idx_band = idx_candidates[(scores_candidates >= low) & (scores_candidates <= high)]
+
+    idx_sampled = rng.choice(idx_band, size=min(n_frames, len(idx_band)), replace=False)
+    idx_sampled = sorted(idx_sampled.tolist(), key=lambda frame_idx: -scores[frame_idx])
+
+    return [
+        (rank, frame_idx, float(scores[frame_idx]))
+        for rank, frame_idx in enumerate(idx_sampled, start=idx_rank_start)
+    ]
+
+
 def draw_model_predictions(
     frame: np.ndarray,
     predictions: dict[str, pd.DataFrame],
@@ -250,8 +301,13 @@ def process_video(
     labeled_indices: dict[str, set[int]],
     output_dir: Path,
     top_k: int,
+    n_mid: int,
+    mid_percentiles: tuple[float, float],
+    seed: int,
 ) -> None:
     """Select and save QC images for one video's most-disagreeing candidate frames.
+
+    The top-k frames are followed by n_mid random frames from a mid-percentile band.
 
     Args:
         video_path: path to the raw video.
@@ -261,7 +317,11 @@ def process_video(
         labeled_indices: video_name -> already-labeled frame indices (see
             load_labeled_frame_indices).
         output_dir: directory to write {video_name}/rank*.png into.
-        top_k: number of frames to save per video.
+        top_k: number of highest-disagreement frames to save per video.
+        n_mid: number of random mid-percentile frames to append per video.
+        mid_percentiles: (low, high) percentile band the mid frames are drawn from.
+        seed: base random seed; combined with the video name so each video's mid frames
+            are reproducible regardless of which other videos are processed.
     """
     video_name = video_path.stem
 
@@ -279,10 +339,20 @@ def process_video(
     if blank_frames_path is not None and blank_frames_path.exists():
         excluded_indices.update(read_blank_frame_indices(blank_frames_path))
 
-    selected = select_top_frames(scores, excluded_indices, top_k)
-    if not selected:
+    selected_top = select_top_frames(scores, excluded_indices, top_k)
+    if not selected_top:
         print(f'{video_name}: no candidate frames left after filtering')
         return
+
+    # crc32 rather than hash(), which is randomized per process
+    rng = np.random.default_rng([seed, zlib.crc32(video_name.encode())])
+
+    # top-k frames are excluded from the mid draw so nothing is written twice
+    excluded_mid = excluded_indices | {frame_idx for _, frame_idx, _ in selected_top}
+    selected_mid = select_mid_frames(
+        scores, excluded_mid, n_mid, mid_percentiles, rng, idx_rank_start=len(selected_top) + 1,
+    )
+    selected = [(*item, '') for item in selected_top] + [(*item, '_mid') for item in selected_mid]
 
     video_output_dir = output_dir / video_name
     video_output_dir.mkdir(parents=True, exist_ok=True)
@@ -292,7 +362,7 @@ def process_video(
         raise OSError(f'could not open video file: {video_path}')
 
     try:
-        for rank, frame_idx, score in selected:
+        for rank, frame_idx, score, tag in selected:
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ok, frame = cap.read()
             if not ok:
@@ -304,14 +374,16 @@ def process_video(
             draw_legend(frame, model_names)
 
             frame_path = (
-                video_output_dir / f'rank{rank:03d}_frame{frame_idx:08d}_var{score:.1f}.png'
+                video_output_dir
+                / f'rank{rank:03d}_frame{frame_idx:08d}_var{score:.1f}{tag}.png'
             )
             cv2.imwrite(str(frame_path), frame)
     finally:
         cap.release()
 
     print(
-        f'{video_name}: wrote {len(selected)} QC frames to {video_output_dir} '
+        f'{video_name}: wrote {len(selected_top)} top + {len(selected_mid)} mid QC frames to '
+        f'{video_output_dir} '
         f'(using {len(predictions)}/{len(model_names)} models)'
     )
 
@@ -352,6 +424,32 @@ def main() -> None:
         default=DEFAULT_TOP_K,
         help='number of highest-disagreement frames to save per video',
     )
+    parser.add_argument(
+        '--n-mid',
+        type=int,
+        default=DEFAULT_N_MID,
+        help='number of random mid-percentile frames to append per video (0 to disable)',
+    )
+    parser.add_argument(
+        '--mid-percentiles',
+        type=float,
+        nargs=2,
+        default=DEFAULT_MID_PERCENTILES,
+        metavar=('LOW', 'HIGH'),
+        help='percentile band of candidate-frame scores the mid frames are drawn from',
+    )
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=DEFAULT_SEED,
+        help='base random seed for mid-frame sampling (combined with each video name)',
+    )
+    parser.add_argument(
+        '--min-day',
+        type=int,
+        default=1,
+        help='only process videos from this day onwards (e.g. 4 skips Day1-Day3)',
+    )
     args = parser.parse_args()
 
     data_dir = args.data_dir if args.data_dir is not None else load_config().data_dir
@@ -361,6 +459,10 @@ def main() -> None:
 
     manifest = build_manifest(data_dir)
     for _, row in manifest.iterrows():
+        day = int(row['session_id'].split('_')[0].removeprefix('Day'))
+        if day < args.min_day:
+            continue
+
         process_video(
             video_path=Path(row['video_path']),
             blank_frames_path=(
@@ -371,6 +473,9 @@ def main() -> None:
             labeled_indices=labeled_indices,
             output_dir=output_dir,
             top_k=args.top_k,
+            n_mid=args.n_mid,
+            mid_percentiles=tuple(args.mid_percentiles),
+            seed=args.seed,
         )
 
 
