@@ -27,13 +27,17 @@ Models are named `{iteration}_vits-dino_seed-{n}`, where `iteration` tracks succ
 rounds of the active-learning loop below (`iter-1.0` = trained on the initial 720 frames;
 later iterations add frames selected from `iter-1.0`'s QC review, etc.).
 
-**Status as of 2026-10-01:** `iter-1.0_vits-dino_seed-{0,1,2}` and
-`iter-1.1_vits-dino_seed-{0,1,2}` are all trained (see Active learning below for what
-frames were added in round 2), with video inference run for all six models. `iter-1.1`
-inference covers every video (Day1-Day12, 144 videos). Project lives at
+**Status as of 2026-11-10:** `iter-1.0`, `iter-1.1`, and `iter-1.2`
+(`_vits-dino_seed-{0,1,2}` each) are all trained (see Active learning below for what
+frames were added in each round), with video inference run for all nine models. `iter-1.1`
+and `iter-1.2` inference cover every video (Day1-Day12, 144 videos). The label set grew
+720 (`iter-1.0`) -> 1018 (`iter-1.1`) -> 1295 (`iter-1.2`) frames; the `iter-1.2` increment
+comes from the round 2 QC review below. `iter-1.2_eks` holds the ensemble-smoothed
+predictions (see Ensemble Kalman Smoother below). Project lives at
 `/media/mattw/CUTTLE/pose-estimation/cuttle-test/` (Lightning Pose project directory):
 `models/{model_name}/video_preds/{video_name}.csv` holds per-video predictions in the
-standard 3-header format `cuttle_patterns/preprocessing/pose.py` parses;
+standard 3-header format `cuttle_patterns/preprocessing/pose.py` parses (each model dir also
+has `*_temporal_norm.csv` companions, which are not predictions);
 `CollectedData.csv` at the project root is the ground-truth labeled-frame manifest, one
 row per label as `labeled-data/{video_name}/img{frame_idx:08d}.jpg`. Frame indices are
 0-based and consistent across this file, each `_black_frames.txt`, and the `video_preds`
@@ -50,13 +54,13 @@ through the QC images and recorded the selected frame indices in
 have since been labeled and added to `CollectedData.csv`, and round 2 training
 (`iter-1.1_vits-dino_seed-{0,1,2}`) on the expanded label set is complete.
 
-**Status (round 2, QC images generated, review pending):** ran
-`scripts/pose_plot_outliers.py --min-day 4` against `iter-1.1_vits-dino_seed-{0,1,2}` over
-the 108 videos from Day4-Day12 (Day1-Day3 were already covered in round 1), with
-`--output-dir {project_dir}/qc/iter-1.1`. Each video got 100 top-variance frames plus 10
-random mid-percentile (`_mid`) frames. A blank
-`{project_dir}/qc/iter-1.1/selected_frames.txt` (one `{video_name} - ` line per video) is
-ready to be filled in while paging through the QC images.
+**Status (round 2, complete):** ran `scripts/pose_plot_outliers.py --min-day 4` against
+`iter-1.1_vits-dino_seed-{0,1,2}` over the 108 videos from Day4-Day12 (Day1-Day3 were
+already covered in round 1), with `--output-dir {project_dir}/qc/iter-1.1`. Each video got
+100 top-variance frames plus 10 random mid-percentile (`_mid`) frames. Selected frame
+indices were recorded in `{project_dir}/qc/iter-1.1/selected_frames.txt` (265 frames), the
+frames were labeled and added to `CollectedData.csv`, and round 3 training
+(`iter-1.2_vits-dino_seed-{0,1,2}`, same recipe, 1295 labels) is complete.
 
 `scripts/pose_plot_outliers.py` (not yet promoted into `cuttle_patterns/` + the `cuttle`
 CLI — see the `scripts/` vs `scratch/` distinction in [DECISIONS.md](DECISIONS.md)) ranks
@@ -88,7 +92,37 @@ Adding a frame to the actual labeling queue (extracting it into `labeled-data/` 
 appending to `CollectedData.unlabeled.jsonl`) stays a manual step in the Lightning Pose
 app after paging through the QC images — the script only selects and renders candidates.
 
+## Ensemble Kalman Smoother
+
+The three seeded models of a round are combined with the
+[Ensemble Kalman Smoother](https://github.com/paninski-lab/eks) (`ensemble-kalman-smoother`
+package, `eks`), run single-view (no multi-view PCA) with a fixed `smooth_param` of 1000.
+That value is large enough that the smoother barely smooths, so the output is close to a
+per-frame median across the three models (on one test video the mean absolute difference
+from the median was ~0.2 px), with EKS-derived uncertainty on top.
+
+`scripts/pose_run_eks.py` (not yet promoted into `cuttle_patterns/` + the `cuttle` CLI) runs
+it over every video that has a `video_preds` CSV in all of the given models
+(`*_temporal_norm.csv` files are ignored; videos missing from some models are skipped with a
+warning), and writes `{project_dir}/models/{output_name}/video_preds/{video_name}.csv`:
+
+```
+python scripts/pose_run_eks.py \
+    --models iter-1.2_vits-dino_seed-0 iter-1.2_vits-dino_seed-1 iter-1.2_vits-dino_seed-2 \
+    --output-name iter-1.2_eks
+```
+
+`--smooth-param` overrides the 1000 default; existing outputs are skipped unless
+`--overwrite` is passed. Requires `ensemble-kalman-smoother` in the active env. The output
+keeps the standard `x`/`y`/`likelihood` columns per keypoint (scorer `ensemble-kalman_tracker`),
+so it loads with `cuttle_patterns/preprocessing/pose.py` like any model's predictions, and
+adds `x_ens_median`, `x_ens_var`, `x_posterior_var` (and `y_` equivalents) columns.
+
+**Status:** `iter-1.2_eks` is the target output directory (Lightning Pose app already created
+`iter-1.2_eks/ensemble.yaml` listing the three members and `smooth_param: 1000.0`); the script
+has been verified on one video but not yet run over all 144.
+
 ## Open questions
 
-- How the three seeded models are combined/selected for the predictions actually
-  consumed by `cuttle inscribe` (ensembling vs. picking one) — not yet decided.
+- Whether `cuttle inscribe` should consume the `iter-1.2_eks` predictions (vs. a single
+  seed's) — not yet decided.
