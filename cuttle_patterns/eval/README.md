@@ -164,6 +164,29 @@ spec = EmbedderSpec(
 result = score_embedder(spec, manifest)
 ```
 
+## Planned additions
+
+Not built yet. Each came out of the photometric-correction comparison
+(see `docs/DECISIONS.md`), where the same checks were done with one-off scripts in
+`scratch/photometry/` (`eval_variants.py`, `eval_split.py`).
+
+- **Compare N results dirs.** One command that takes several results dirs (variants of
+  the same frames) and scores them side by side, with `--exclude` for videos and a
+  fixed-cluster mode (clusters fit on one variant, applied to the others) as well as a
+  refit mode.
+- **Group-by splits.** Report the metrics per subset (`--group-by day|fog|...`) from a
+  per-video metadata table (day, tank, cuttle, pattern, fog flag, `resized`, exclusion
+  reason, rotation flag), instead of hard-coded video lists in each script.
+- **Bootstrap noise estimate.** Resample over videos and report intervals for every
+  metric, so gaps near 0.02 can be judged. Currently only k-means seed variation is
+  visible, and it understates the noise.
+- **Fork a results dir.** A helper (e.g. `cuttle fork-results --link`) that creates a
+  derived results dir with symlinks to unchanged inputs and refuses to write into the
+  source, for variant and ablation runs.
+- **Controls as defaults.** For image-level changes, also score a raw re-export of the
+  same frames and a deliberately wrong-parameter variant; re-encoding alone moved some
+  metrics by about 0.02, so compare against the re-export, not the original.
+
 ## Sanity check
 
 An MSPS-VAE checkpoint's `z_b` subspace should score high on

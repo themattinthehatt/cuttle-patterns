@@ -19,7 +19,9 @@ relative paths, so the tree layout only has to change in one place:
     │           ├── {method}_{hparams}.parquet
     │           └── {method}_{hparams}/    # cuttle clusterview
     ├── classifications/                    # scripts/classify_skin_pattern.py
-    │   └── {classifier_name}.parquet       # model-independent, unlike clusters/ above
+    │   ├── {classifier_name}.parquet       # model-independent, unlike clusters/ above
+    │   └── {model_name}/                   # scripts/classify_video_skin_pattern.py (every frame)
+    │       └── {video_stem}.parquet
     ├── eval/                               # cuttle_patterns.eval.run_core
     │   ├── metrics.json
     │   └── scoreboard.md
