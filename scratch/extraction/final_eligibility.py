@@ -1,6 +1,6 @@
 """Build the final per-video eligibility + label tables (criteria 1-6, see README.md).
 
-Status: exploratory; feeds `select_by_class.py`.
+Status: superseded by the `cuttle extract-*` pipeline (see README.md).
 
 Combines, per video: the criteria 1-4 flags from `count_eligible.py`, the 99th-percentile
 motion-energy gate (computed among frames passing 1-4, on the aligned rectangle video, frame 0

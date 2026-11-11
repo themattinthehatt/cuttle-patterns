@@ -1,6 +1,6 @@
 """Class-quota frame selection with per-video-first hierarchical k-means.
 
-Status: exploratory; produces the candidate `beast_frames` manifest (see README.md).
+Status: superseded by the `cuttle extract-*` pipeline (see README.md).
 
 1. Quotas: `--budget` frames split across classifier classes with shares proportional to
    `class_count ** --quota-power` (0.5 = square root, 0 = uniform, 1 = proportional),

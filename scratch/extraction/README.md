@@ -1,9 +1,19 @@
 # Frame selection for BEAST training (scratch plan)
 
+**Status: superseded.** The result of this work is now the `cuttle extract-*` pipeline
+(`cuttle extract` lists the stages; mechanism in `docs/PHASES.md` Phase 3, rationale in the
+"Class-quota frame selection" entry of `docs/DECISIONS.md`). The scripts in this directory
+are the exploratory record: threshold tuning (`jump_contact_sheets.py`,
+`motion_contact_sheets.py`, `black_contact_sheets.py`), the selection-method prototypes
+(`embed_subset.py`, `compare_selection.py`, `cross_video_selection.py`), and the versions of
+eligibility/selection/evaluation that were promoted (`count_eligible.py`,
+`final_eligibility.py`, `select_by_class.py`, `evaluate_selection.py`, `kmeans_utils.py`).
+Intermediate data is under `results/.extraction/`.
+
 Prototype of a revised `cuttle extract`: pick a diverse, less state-biased pool of frames
 to use as `beast_frames`, on which the different extractors/backbones are then compared.
 Orthogonal to the photometry work in `scratch/photometry/`. Once the settings are chosen,
-the logic moves into `cuttle_patterns/preprocessing/extract.py` and the CLI (see
+the logic moved into `cuttle_patterns/preprocessing/extract/` and the CLI (see
 "Promotion to the CLI" below).
 
 Design reference: `/media/mattw/poseinterface/mighty-mouse/docs/pretrain_frame_selection.md`

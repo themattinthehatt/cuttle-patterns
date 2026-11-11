@@ -1,6 +1,6 @@
 """Diagnostics for a `select_by_class.py` manifest.
 
-Status: exploratory; companion to `select_by_class.py`.
+Status: superseded by the `cuttle extract-*` pipeline (see README.md).
 
 Everything is computed over the videos present in the manifest, against the eligible frames of
 those videos (`eligibility_final/`) and their DINOv3 CLS embeddings. For each class, the
