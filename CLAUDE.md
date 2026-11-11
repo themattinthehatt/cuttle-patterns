@@ -206,36 +206,33 @@ Every existing stage (e.g. `cuttle cluster`/`cluster.py`, `cuttle clusterview`/
 - Do not pin versions
 - Update pyproject.toml and document changes
 
-## Documentation Map
+## Data and Experiments
 
-Where things are documented, and what each doc is *for* — check this before searching
-multiple files for the same fact:
+### Data rules
+- `/media/mattw/CUTTLE/raw_data`, `raw_data_samples` and existing `results/.iter-*` dirs
+  are read-only: never move, delete or modify anything in them. Derived data goes in a
+  new results dir (e.g. `results/.iter-1.0-<topic>/`), reusing unchanged inputs via symlinks.
+- Measure boxes, scale and parameters from each day and tank's own data; never carry a
+  value from one day or tank to another.
+- Read `docs/data_layout.md` before touching raw data: it lists the naming rules and the
+  known inconsistencies (re-made crops, flipped obj_ids, rotated samples, fogged Day 1).
 
-- `README.md` — setup instructions + the full `cuttle` CLI usage reference, one section
-  per subcommand (flags, example invocation). Points to `--help` for flag defaults and
-  to `cuttle_patterns/paths.py` for exact output paths, rather than restating either.
-- `docs/PHASES.md` — the living design/status narrative, phase-by-phase (stable,
-  append-only numbered IDs — never renumbered). This is where algorithm-level detail
-  lives (inscription, smoothing, extraction, embedder readouts, etc.), edited in place
-  as the implementation changes.
-- `docs/DECISIONS.md` — append-only, reverse-chronological decision log: what was
-  decided, why, alternatives considered, trade-offs. Points to `PHASES.md` for mechanism
-  rather than restating it — read `PHASES.md` for *what/current state*, this for *why*.
-- `docs/pose_estimation.md` — living status doc for the external Lightning Pose
-  tail/neck model (training rounds, active-learning loop) consumed by `cuttle inscribe`'s
-  pose-informed path.
-- `docs/latent_space_confounds.md` — living status doc narrating the AE → MSPS-VAE →
-  masked-MSPS-VAE confound-diagnosis timeline; only "Current open issue" is still live,
-  the rest is historical narrative.
-- `docs/implementation_notes/embedder.md` — living implementation reference for
-  `cuttle embed`'s backbone/readout protocol (DINOv3, VGG-19, Gram-matrix math) — the
-  canonical source for embedder detail; other docs point here rather than restating it.
-- `docs/implementation_notes/eval_plan.md` — historical design doc for the eval harness
-  (captures the original plan, including what was deliberately never built). For current
-  status, see `cuttle_patterns/eval/README.md` instead of this doc's present-tense claims.
-- `docs/implementation_notes/msps_vae.md` — living implementation reference for the
-  MSPS-VAE model/sampler/config; its "Implementation gotchas"/"Resolved during
-  implementation" sections are a dated log, not rewritten after the fact.
-- `cuttle_patterns/eval/README.md` — how-to-run guide for the eval harness (current
-  scope, metrics, CLI usage) — the up-to-date counterpart to `eval_plan.md`'s historical
-  plan.
+### Environment
+- Activate the `cuttle` conda env (not just invoke its python) before running python,
+  pytest or `cuttle` commands.
+
+### Long-running jobs
+- Run them detached with output to a log file, and write a small progress file (done/total,
+  current item) that can be read without attaching to the job.
+- Make jobs resumable (skip outputs that already exist), and run one model or variant per
+  invocation so results arrive incrementally.
+
+### Scratch work
+- Exploratory code goes in `scratch/<topic>/`; its data goes in `results/.iter-<n>-<topic>/`;
+  temporary files and QC output go in the session scratchpad, not the repo.
+- Start each script with a docstring that says its status: exploratory, superseded, or
+  reproduces a decision (name the `docs/DECISIONS.md` entry).
+- Share paths and session lists through one helper per topic instead of hard-coding them in
+  every script.
+- Add a short `scratch/<topic>/README.md`: the question, the result, and a pointer to the
+  decision entry.

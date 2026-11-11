@@ -10,6 +10,72 @@ description may be trimmed in favor of such a pointer.
 
 ---
 
+## No photometric correction in the pipeline; exclude Day 1 instead
+
+**Date:** 2026-11-11
+**Status:** decided (no correction); Day 1 exclusion is the working plan, not yet applied to
+any scoreboard
+
+**Decision:** Do not add a photometric-correction stage (fog subtraction, per-session
+flat-field map, per-frame gain) to the pipeline. The prototype stays in
+`scratch/photometry/` as a documented negative result. For the downstream analysis, drop
+Day 1 and use the original iter-1.0 frames as they are.
+
+**Why:** the correction was tested by re-correcting the exact iter-1.0 anchor frames
+(same frame numbers, fixed iter-1.0 classifier labels) and re-scoring with the eval
+harness, with controls: a raw re-export through the same warp (no correction), the fitted
+parameters of the next tank (wrong-parameter), and per-tank mean/std color normalization.
+Scored on 25,756 frames from 26 videos:
+
+- Pixel statistics improved as designed (η² of session within pattern: black level
+  0.60 → 0.10, b\* 0.42 → 0.17), but L\* and a\* did not (a\* ~0.57 unchanged), and a
+  global brightness target made L\* worse until it was replaced by each session's own floor
+  level.
+- Embedder metrics were flat for DINOv3 (CLS, mean-patch, Gram at 224 and 448), VGG-19
+  relu5_1, resnet-18 and MSPS-VAE-mask `z_u`; the differences against the raw re-export were
+  within ~0.02 AMI. Clear gains appeared only for embedders that read low-level color
+  statistics: VGG-19 relu1_1 (AMI cluster-vs-video within class 0.289 → 0.233), VGG-19
+  layers 1–5 (0.286 → 0.231) and MSPS-VAE-mask `z_b` (0.859 → 0.804).
+- Splitting by session showed those gains come from the lifted-black ("fogged") Day 1
+  sessions. With Day1_Tank2 and Day1_Tank6 removed, the change is within ±0.02 for every
+  embedder, and the wrong-parameter control is worse than raw, i.e. the fitted correction is
+  no better than not correcting on sessions without fog.
+- Scene statistics on all 72 sample-frame sessions (Days 1–12) show Day1 Tanks 2, 4 and 6
+  as clear outliers on floor brightness (~45% brighter) and color (bluer), which no other
+  session matches; their dark level is also elevated (~6–9x the median), and Tank 5 has an
+  elevated dark level alone. The dark level by itself is not unique to Day 1: a few later
+  sessions (notably Day10_Tank2 and Day10_Tank4, dark/floor ratio up to ~0.04) are comparable,
+  though their floor brightness and color are ordinary. The dark-level proxy depends on the
+  animal's coloration, so it is a weaker signal than brightness and color; it has only been
+  cross-checked against animal black level for Days 1–3.
+- Day 1 also carries most of the known raw-data inconsistencies (Tank 1 bbox/canvas
+  mismatch, Tank 3 rotated 180° with a changed crop, Tank 4 changed crop), so excluding it
+  removes both the fog and several integrity questions.
+
+**Alternatives considered:** keep the correction and drop only the fogged Day 1 sessions
+(rejected: the correction does nothing measurable elsewhere, and needs per-session fitting
+and sample frames for every new session); fog subtraction alone with no flat-field or gain
+(not tested; the cheapest thing to try if fog shows up on a later day); per-tank color
+normalization (matches the fitted correction on several embedders but is weaker on the
+low-level VGG embedders and discards real tank-level signal by construction); retraining
+resnet-18 / MSPS-VAE on corrected frames (not run: ~15 h per model, and the frozen and
+existing-model tiers already answered the question).
+
+**Trade-off / known risk:** the fog conclusion rests on only two fogged sessions in the
+comparison set (Day1_Tank4, a third, is not in it) and no noise estimate beyond k-means
+seeds, so single-cell differences of ~0.02–0.05 should not be over-read. The comparison also
+left out six iter-1.0 fish-videos (Day1_Tank3 and Day1_Tank4 both fish, Day3_Tank2
+Cuttle2, Day3_Tank6 Cuttle1) because their crop mp4s were re-made (`canvas_sides.csv`
+`resized=True`) and no longer reproduce the iter-1.0 frames; the two Day 3 videos can
+return to the analysis with their original iter-1.0 frames once it's confirmed the original
+crops were valid. Dropping Day 1 does not address the video-identity confound itself (see
+[latent_space_confounds.md](latent_space_confounds.md)). If a later day shows the Day 1
+signature (brighter, bluer floor with lifted blacks), or if the elevated dark levels on
+Day 10 (Tanks 2 and 4) turn out to be real lifted blacks in the animal pixels, revisit with fog
+subtraction alone first.
+
+---
+
 ## Frozen pretrained embedders (`cuttle embed`): DINOv3 + CLS/mean-patch/Gram readouts
 
 **Date:** 2026-09-20

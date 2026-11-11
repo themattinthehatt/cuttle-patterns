@@ -6,12 +6,22 @@ embedding via BEAST, and interactive tools for exploring the resulting pattern c
 
 ## Docs
 
-- [docs/PHASES.md](docs/PHASES.md) — project phases/roadmap
-- [docs/DECISIONS.md](docs/DECISIONS.md) — decision log
-- [docs/pose_estimation.md](docs/pose_estimation.md) — pose model used for pose-informed
-  `cuttle inscribe`
-- [cuttle_patterns/eval/README.md](cuttle_patterns/eval/README.md) — embedding
-  evaluation harness
+```
+README.md                                    # setup + full `cuttle` CLI reference
+CLAUDE.md                                    # development guidelines for Claude Code
+docs/
+├── PHASES.md                                # living design/status narrative, by phase
+├── DECISIONS.md                             # append-only decision log (the why)
+├── data_layout.md                           # raw data and results layout, known data issues
+├── pose_estimation.md                       # external tail/neck pose model status
+├── latent_space_confounds.md                # AE -> MSPS-VAE -> masked-MSPS-VAE confound timeline
+└── implementation_notes/
+    ├── embedder.md                          # `cuttle embed` backbones/readouts (canonical)
+    ├── eval_plan.md                         # historical eval-harness design
+    └── msps_vae.md                          # MSPS-VAE model/sampler/config reference
+cuttle_patterns/eval/README.md               # eval harness how-to-run (current scope, metrics)
+cuttle_patterns/paths.py                     # results_dir tree (module docstring)
+```
 
 ## Setup
 
