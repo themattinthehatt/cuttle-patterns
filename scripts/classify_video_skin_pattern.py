@@ -45,6 +45,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 from torchvision.models import resnet18
+from tqdm import tqdm
 
 from cuttle_patterns import paths
 from cuttle_patterns.config import load_config
@@ -171,6 +172,8 @@ def classify_video(
     device: torch.device,
     batch_size: int,
     save_features: bool,
+    n_frames: int,
+    position: int = 0,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Classify every frame of one video.
 
@@ -181,6 +184,9 @@ def classify_video(
         device: torch device.
         batch_size: frames per forward pass.
         save_features: also return the 512-d penultimate features.
+        n_frames: frame count reported by the container, used for the progress bar total.
+        position: tqdm bar row, so sharded processes sharing a terminal don't overwrite each
+            other.
 
     Returns:
         `(probs, features)`: float32 pattern softmax of shape (n_frames, n_classes), and float16
@@ -191,16 +197,19 @@ def classify_video(
                               daemon=True)
     thread.start()
     probs, feats = [], []
-    while True:
-        item = batches.get()
-        if item is None:
-            break
-        if isinstance(item, Exception):
-            raise item
-        pattern_logits, _ = model(preprocess(item, device))  # border head ignored
-        probs.append(F.softmax(pattern_logits, dim=1).cpu().numpy())
-        if save_features:
-            feats.append(captured['value'].cpu().numpy().astype(np.float16))
+    with tqdm(total=n_frames, desc=video_path.stem, unit='frame', position=position,
+              leave=False) as pbar:
+        while True:
+            item = batches.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            pattern_logits, _ = model(preprocess(item, device))  # border head ignored
+            probs.append(F.softmax(pattern_logits, dim=1).cpu().numpy())
+            if save_features:
+                feats.append(captured['value'].cpu().numpy().astype(np.float16))
+            pbar.update(len(item))
     thread.join()
     return np.concatenate(probs), (np.concatenate(feats) if save_features else None)
 
@@ -312,10 +321,13 @@ def main() -> None:
             _logger.info(f'[{idx + 1}/{len(video_paths)}] {video_path.stem}: exists, skipping')
             continue
         _logger.info(f'[{idx + 1}/{len(video_paths)}] {video_path.stem}')
+        cap = cv2.VideoCapture(str(video_path))
+        n_expected = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
         probs, feats = classify_video(
             video_path, model, captured, device, args.batch_size, args.save_features,
+            n_expected, args.shard,
         )
-        n_expected = int(cv2.VideoCapture(str(video_path)).get(cv2.CAP_PROP_FRAME_COUNT))
         if len(probs) != n_expected:
             _logger.warning(
                 f'{video_path.stem}: decoded {len(probs)} frames but the container reports '

@@ -22,6 +22,9 @@ relative paths, so the tree layout only has to change in one place:
     │   ├── {classifier_name}.parquet       # model-independent, unlike clusters/ above
     │   └── {model_name}/                   # scripts/classify_video_skin_pattern.py (every frame)
     │       └── {video_stem}.parquet
+    ├── embeddings/                         # scripts/dinov3_video_cls.py
+    │   └── dinov3_{arch}/
+    │       └── {video_stem}.npy            # (n_frames, dim) float16, every frame
     ├── eval/                               # cuttle_patterns.eval.run_core
     │   ├── metrics.json
     │   └── scoreboard.md
@@ -56,6 +59,9 @@ CLUSTERS_RELPATH = Path('clusters')
 # supervised classifier predictions (scripts/classify_skin_pattern.py) - independent of
 # any BEAST model, since classification only depends on the frame images
 CLASSIFICATIONS_RELPATH = Path('classifications')
+
+# per-frame DINOv3 CLS features for full videos (scripts/dinov3_video_cls.py)
+EMBEDDINGS_RELPATH = Path('embeddings')
 
 # embedding eval harness scoreboard (cuttle_patterns.eval.run_core)
 EVAL_RELPATH = Path('eval')
