@@ -100,7 +100,7 @@ class TestCmdClusterview:
             raise AssertionError('load_config should not be called when --results-dir is set')
 
         monkeypatch.setattr(
-            'cuttle_patterns.cli.cmd_clusterview.load_config',
+            'cuttle_patterns.cli.common.load_config',
             lambda: _fail_if_called(),
         )
         args = _make_args(results_dir=override_results_dir)

@@ -8,7 +8,7 @@ import torch
 
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
-from cuttle_patterns.config import load_config
+from cuttle_patterns.cli.common import resolve_results_dir
 from cuttle_patterns.embed import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_GRAM_K,
@@ -167,15 +167,7 @@ def cmd_embed(args: argparse.Namespace) -> None:
     Args:
         args: parsed command-line arguments
     """
-    if args.results_dir is not None:
-        results_dir = args.results_dir
-    else:
-        try:
-            config = load_config()
-        except (FileNotFoundError, ValueError) as e:
-            print(f'Error: {e}')
-            sys.exit(1)
-        results_dir = config.results_dir
+    results_dir = resolve_results_dir(args)
 
     input_dir = (
         args.input_dir if args.input_dir is not None else results_dir / paths.BEAST_FRAMES_RELPATH

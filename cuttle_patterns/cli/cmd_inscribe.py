@@ -6,7 +6,7 @@ from pathlib import Path
 
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
-from cuttle_patterns.config import load_config
+from cuttle_patterns.cli.common import resolve_dirs
 from cuttle_patterns.ingest import find_raw_videos
 from cuttle_patterns.preprocessing.align import (
     DEFAULT_CANONICAL_HEIGHT,
@@ -121,17 +121,7 @@ def cmd_inscribe(args: argparse.Namespace) -> None:
     Args:
         args: parsed command-line arguments
     """
-    if args.data_dir is not None and args.results_dir is not None:
-        data_dir = args.data_dir
-        results_dir = args.results_dir
-    else:
-        try:
-            config = load_config()
-        except (FileNotFoundError, ValueError) as e:
-            print(f'Error: {e}')
-            sys.exit(1)
-        data_dir = args.data_dir if args.data_dir is not None else config.data_dir
-        results_dir = args.results_dir if args.results_dir is not None else config.results_dir
+    data_dir, results_dir = resolve_dirs(args)
 
     output_dir = (
         args.output_dir if args.output_dir is not None

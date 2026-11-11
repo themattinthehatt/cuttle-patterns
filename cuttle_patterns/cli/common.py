@@ -1,4 +1,4 @@
-"""Argument helpers shared by the `cuttle extract-*` commands.
+"""Argument helpers shared by the `cuttle` commands.
 
 Not a command itself (`main.py` only registers `cmd_*.py` modules).
 """
@@ -33,6 +33,27 @@ def add_shard_arguments(parser: argparse.ArgumentParser) -> None:
     """
     parser.add_argument('--shard', type=int, default=0, help='this process\'s shard index')
     parser.add_argument('--n-shards', type=int, default=1, help='total number of shards')
+
+
+def resolve_results_dir(args: argparse.Namespace) -> Path:
+    """Resolve the results directory from the override or the config file.
+
+    The config file is only read when `--results-dir` was not given. Prints an error and exits
+    with status 1 if it is needed but unusable.
+
+    Args:
+        args: parsed arguments with `results_dir`.
+
+    Returns:
+        the results directory.
+    """
+    if args.results_dir is not None:
+        return args.results_dir
+    try:
+        return load_config().results_dir
+    except (FileNotFoundError, ValueError) as e:
+        print(f'Error: {e}')
+        sys.exit(1)
 
 
 def resolve_dirs(args: argparse.Namespace) -> tuple[Path, Path]:
