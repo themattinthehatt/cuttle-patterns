@@ -7,6 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from cuttle_patterns import paths
 from cuttle_patterns.config import load_config
 
 
@@ -77,3 +78,16 @@ def resolve_dirs(args: argparse.Namespace) -> tuple[Path, Path]:
     data_dir = args.data_dir if args.data_dir is not None else config.data_dir
     results_dir = args.results_dir if args.results_dir is not None else config.results_dir
     return data_dir, results_dir
+
+
+def resolve_model_dir(results_dir: Path, model_name: str) -> Path:
+    """Directory of a named BEAST model; it may not exist yet.
+
+    Args:
+        results_dir: results directory.
+        model_name: name the model was trained under.
+
+    Returns:
+        `results_dir/{BEAST_MODELS_RELPATH}/{model_name}`.
+    """
+    return results_dir / paths.BEAST_MODELS_RELPATH / model_name

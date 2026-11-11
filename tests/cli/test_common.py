@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cuttle_patterns.cli.common import resolve_dirs, resolve_results_dir
+from cuttle_patterns import paths
+from cuttle_patterns.cli.common import resolve_dirs, resolve_model_dir, resolve_results_dir
 
 
 def _args(data_dir: Path | None = None, results_dir: Path | None = None) -> argparse.Namespace:
@@ -34,3 +35,11 @@ class TestResolveDirs:
     def test_resolve_dirs_missing_config_exits(self, no_config):
         with pytest.raises(SystemExit):
             resolve_dirs(_args(data_dir=Path('/d')))
+
+
+class TestResolveModelDir:
+    """Test the function resolve_model_dir."""
+
+    def test_resolve_model_dir_joins_models_path_and_name(self):
+        out = resolve_model_dir(Path('/r'), 'm1')
+        assert out == Path('/r') / paths.BEAST_MODELS_RELPATH / 'm1'

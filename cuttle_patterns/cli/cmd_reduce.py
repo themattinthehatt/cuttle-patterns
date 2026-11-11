@@ -6,7 +6,7 @@ from pathlib import Path
 
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
-from cuttle_patterns.cli.common import resolve_results_dir
+from cuttle_patterns.cli.common import resolve_model_dir, resolve_results_dir
 from cuttle_patterns.latents import LATENT_SPACE_ALL, load_latents, split_latent_spaces
 from cuttle_patterns.metadata import attach_individual_column
 from cuttle_patterns.reduce import (
@@ -91,7 +91,7 @@ def cmd_reduce(args: argparse.Namespace) -> None:
     """
     results_dir = resolve_results_dir(args)
 
-    model_dir = results_dir / paths.BEAST_MODELS_RELPATH / args.model_name
+    model_dir = resolve_model_dir(results_dir, args.model_name)
     latents_dir = model_dir / 'image_predictions' / args.predictions_name / 'latents'
 
     try:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
-from cuttle_patterns.cli.common import resolve_results_dir
+from cuttle_patterns.cli.common import resolve_model_dir, resolve_results_dir
 
 DEFAULT_BATCH_SIZE = 32
 
@@ -84,7 +84,7 @@ def cmd_predict(args: argparse.Namespace) -> None:
     input_dir = (
         args.input_dir if args.input_dir is not None else results_dir / paths.BEAST_FRAMES_RELPATH
     )
-    model_dir = results_dir / paths.BEAST_MODELS_RELPATH / args.model_name
+    model_dir = resolve_model_dir(results_dir, args.model_name)
 
     if not model_dir.exists():
         print(f'Error: no model found at {model_dir}; train one first with cuttle train')
