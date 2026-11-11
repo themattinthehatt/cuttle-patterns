@@ -1,0 +1,11 @@
+{
+  "Day2_Tank2": {
+    "frame": "Day_2_tank_2_frame_*.png (fish-free temporal median)",
+    "frame_size": [771, 434],
+    "regions": {
+      "black_drain": [152, 407, 210, 413],
+      "tank": [160, 67, 607, 385],
+      "white_spout": [532, 370, 562, 392]
+    }
+  }
+}
