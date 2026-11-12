@@ -16,14 +16,49 @@ from cuttle_patterns.paths import CLASSIFICATIONS_RELPATH, EXTRACT_MANIFEST_RELP
 VIDEO_NAME_SUFFIX = '_Crop'
 
 
+def _load_classifications(path: Path, video_names: set[str]) -> pd.DataFrame:
+    """Load classifier predictions from either on-disk layout.
+
+    Args:
+        path: `classifications/{classifier_name}`; a directory of per-video parquets
+            (`cuttle extract-classify`: `{video_name}.parquet` with a `frame_idx`
+            column), or, with `.parquet` appended, a single legacy file with
+            `video_name` and `frame_number` columns.
+        video_names: videos to read in the directory layout; others are skipped.
+
+    Returns:
+        predictions with `video_name` and `frame_number` columns.
+
+    Raises:
+        FileNotFoundError: if neither layout exists, or a needed video has no file.
+    """
+    if path.is_dir():
+        frames = []
+        for video_name in sorted(video_names):
+            video_path = path / f'{video_name}.parquet'
+            if not video_path.is_file():
+                raise FileNotFoundError(f'no classifications file found at {video_path}')
+            frames.append(
+                pd.read_parquet(video_path).assign(video_name=video_name).rename(
+                    columns={'frame_idx': 'frame_number'},
+                )
+            )
+        return pd.concat(frames, ignore_index=True)
+    legacy_path = path.with_name(f'{path.name}.parquet')
+    if not legacy_path.is_file():
+        raise FileNotFoundError(f'no classifications file found at {legacy_path}')
+    return pd.read_parquet(legacy_path)
+
+
 def build_eval_manifest(results_dir: Path, classifier_name: str) -> pd.DataFrame:
     """Join classifier predictions onto the existing eval frame set.
 
     Args:
         results_dir: root results directory (see `cuttle_patterns.config.Config`).
-        classifier_name: stem of the classifications file to join, i.e. the file at
-            `results_dir/classifications/{classifier_name}.parquet`
-            (`scripts/classify_skin_pattern.py`'s output).
+        classifier_name: classifications to join: the directory
+            `results_dir/classifications/{classifier_name}` of per-video parquets
+            (`cuttle extract-classify`), or the single file
+            `results_dir/classifications/{classifier_name}.parquet`.
 
     Returns:
         one row per eval frame, with columns `video_name`, `frame_number`,
@@ -48,10 +83,8 @@ def build_eval_manifest(results_dir: Path, classifier_name: str) -> pd.DataFrame
         frame_number=extract['frame_idx'].astype('int64'),
     )
 
-    classifications_path = results_dir / CLASSIFICATIONS_RELPATH / f'{classifier_name}.parquet'
-    if not classifications_path.is_file():
-        raise FileNotFoundError(f'no classifications file found at {classifications_path}')
-    classifications = pd.read_parquet(classifications_path)
+    classifications_path = results_dir / CLASSIFICATIONS_RELPATH / classifier_name
+    classifications = _load_classifications(classifications_path, set(extract['video_name']))
     classifications = classifications.assign(
         video_name=classifications['video_name'].astype(str),
         frame_number=classifications['frame_number'].astype('int64'),
