@@ -23,7 +23,7 @@ class TestCmdIngest:
     ):
         # Arrange
         monkeypatch.setattr(
-            'cuttle_patterns.cli.cmd_ingest.load_config', _raise_file_not_found,
+            'cuttle_patterns.cli.common.load_config', _raise_file_not_found,
         )
         args = argparse.Namespace(data_dir=None, results_dir=None)
 

@@ -68,7 +68,7 @@ class TestCmdOverlay:
     ):
         # Arrange
         monkeypatch.setattr(
-            'cuttle_patterns.cli.cmd_overlay.load_config', _raise_file_not_found,
+            'cuttle_patterns.cli.common.load_config', _raise_file_not_found,
         )
         args = _make_args()
 

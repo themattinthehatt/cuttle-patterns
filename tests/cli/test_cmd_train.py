@@ -47,7 +47,7 @@ class TestCmdTrain:
         capsys: pytest.CaptureFixture,
     ):
         # Arrange
-        monkeypatch.setattr('cuttle_patterns.cli.cmd_train.load_config', _raise_file_not_found)
+        monkeypatch.setattr('cuttle_patterns.cli.common.load_config', _raise_file_not_found)
         args = _make_args()
 
         # Act & Assert

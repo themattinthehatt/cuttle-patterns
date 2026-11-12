@@ -8,7 +8,7 @@ from pathlib import Path
 
 from cuttle_patterns import paths
 from cuttle_patterns.cli import DefaultsHelpFormatter
-from cuttle_patterns.config import load_config
+from cuttle_patterns.cli.common import resolve_model_dir, resolve_results_dir
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -77,20 +77,12 @@ def cmd_train(args: argparse.Namespace) -> None:
         print('Error: beast not found on PATH; is beast-backbones installed?')
         sys.exit(1)
 
-    if args.results_dir is not None:
-        results_dir = args.results_dir
-    else:
-        try:
-            config = load_config()
-        except (FileNotFoundError, ValueError) as e:
-            print(f'Error: {e}')
-            sys.exit(1)
-        results_dir = config.results_dir
+    results_dir = resolve_results_dir(args)
 
     input_dir = (
         args.input_dir if args.input_dir is not None else results_dir / paths.BEAST_FRAMES_RELPATH
     )
-    model_dir = results_dir / paths.BEAST_MODELS_RELPATH / args.model_name
+    model_dir = resolve_model_dir(results_dir, args.model_name, must_exist=False)
 
     if model_dir.exists() and any(model_dir.iterdir()):
         print(

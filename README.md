@@ -20,6 +20,7 @@ docs/
     ├── eval_plan.md                         # historical eval-harness design
     └── msps_vae.md                          # MSPS-VAE model/sampler/config reference
 cuttle_patterns/eval/README.md               # eval harness how-to-run (current scope, metrics)
+cuttle_patterns/preprocessing/extract/README.md  # frame selection (`cuttle extract-*`) guide
 cuttle_patterns/paths.py                     # results_dir tree (module docstring)
 ```
 
@@ -141,46 +142,80 @@ tune size vs. quality with `--crf` (lower is higher quality/larger file). As
 with `cuttle inscribe`, pass `--skip-existing` to leave an already-written overlay video
 alone rather than re-encoding it.
 
-### `cuttle extract`
+### `cuttle extract` (frame selection, in stages)
 
-Selects a diverse, representative set of still frames from the aligned crop videos
-(under `rectangles/`) to train BEAST (Phase 4) on. Per video:
-
-1. Remove frames that are blank, have any tail/neck keypoint likelihood below 0.9, or
-   have a rectangle (from `cuttle inscribe`) whose long edge is less than 50% of the
-   neck-tail distance — a body clearly longer than the box drawn around it, found via QC
-   on real data (`scratch/qc_small_rectangles.py`).
-2. Keep only the survivors whose immediate neighbors also survived step 1, so every frame
-   BEAST will see as temporal context is itself a valid frame.
-3. From that candidate set, select anchor frames during movement via motion-energy
-   thresholding, PCA, and k-means — a fork of
-   `beast.preprocess.extraction.select_frame_idxs_kmeans` (BEAST v2.0.0) restricted to
-   only ever pick anchors from the candidate set.
+Selects the still frames BEAST trains on from the aligned crop videos (under `rectangles/`),
+as a sequence of separately runnable, resumable stages. `cuttle extract` itself only prints
+the stage list; run them in order (`cuttle <stage> --help` for options and defaults,
+`cuttle_patterns/paths.py` for exact output paths; the working guide, with gotchas and what to
+check, is `cuttle_patterns/preprocessing/extract/README.md`):
 
 ```bash
-cuttle extract --pose-dir /path/to/pose/predictions
+cuttle extract-eligibility --pose-dir /path/to/pose/predictions
+cuttle extract-classify --model-dir /path/to/classifier_dir
+cuttle extract-dino-cls
+cuttle extract-kmeans-video --name sqrt-132k --classifier-name <classifier_dir name> --budget 132000
+cuttle extract-kmeans-pooled --name sqrt-132k
+cuttle extract-report --name sqrt-132k
+cuttle extract-export --name sqrt-132k
 ```
 
-`--pose-dir` is **required, with no default** — keypoint-likelihood and rectangle-size
-filtering are required parts of the algorithm here, not an optional refinement like in
-`cuttle inscribe`/`cuttle overlay`. A video with no matching `{video_name}.csv` in
-`--pose-dir`, no matching `{video_name}.csv` rectangle geometry in `--input-dir` (written
-alongside the video by `cuttle inscribe`), or a missing blank-frames `.txt` in `data_dir`
-is skipped/warned about rather than silently including unfiltered frames.
+Each stage prints the next one when it finishes. The long stages (`extract-eligibility`,
+`extract-classify`, `extract-dino-cls`) skip videos that are already done, write a
+`progress_shard{i}of{n}.json` next to their output, and take `--shard`/`--n-shards` to split
+videos across processes. Algorithm-level detail is in [docs/PHASES.md](docs/PHASES.md)
+(Phase 3); why it works this way is in [docs/DECISIONS.md](docs/DECISIONS.md).
 
-For each video, writes every selected anchor frame plus its immediate neighbors
-(context for BEAST's temporal training) under `beast_frames/`, and a
-`selected_frames.csv` listing just the anchor frames — matching BEAST's own
-`extract_frames` output layout. Across all videos, also writes a combined manifest
-(`session_id`, `fish_id`, `frame_idx`, `image_path`, one row per selected anchor frame)
-under `manifests/`.
+#### `cuttle extract-eligibility`
 
-`-n`/`--frames-per-video` caps the number of anchor frames selected per video — a
-maximum, not an exact count: a video with fewer surviving candidate frames than
-that just uses all of them, with a printed warning. As with the earlier steps,
-`--skip-existing` skips a video whose `beast_frames/{video_name}/selected_frames.csv`
-already exists, and `--video-path`/`--pose-path` process a single video against an
-explicit pose CSV instead of scanning `--input-dir` (default `results_dir/rectangles`).
+Per aligned video, computes which frames are usable: not blank, all tail/neck keypoints
+above 0.9 likelihood, rectangle not too small for the body, no keypoint jump over 25 px
+between neighboring frames, motion energy not in the video's top 1% (alignment glitches,
+blur), and less than 5% pure-black pixels. One table per video, one boolean column per
+criterion, so thresholds can be re-tuned (`--jump-max`, `--me-percentile`, `--black-max`)
+without guessing which frames each one removed. `--pose-dir` is required (crop-frame pose
+CSVs); a video missing its pose or rectangle CSV is skipped with a warning.
+
+#### `cuttle extract-classify`
+
+Runs the two-head skin-pattern classifier (`--model-dir`: weights plus `behaviors.json`) over
+every frame of the 512x512 crop videos, keeping only the pattern head. One table per video
+with the label, confidence and per-class probabilities of every frame; `--save-features` also
+keeps the 512-d penultimate features. Output goes to `classifications/{model name}/`.
+
+#### `cuttle extract-dino-cls`
+
+Computes DINOv3 CLS features (fp16 autocast, stored as float16) for every frame of the aligned
+rectangle videos, one `.npy` per video where row i is frame i. It uses the same backbone and
+preprocessing as `cuttle embed`, applied to whole videos instead of exported stills.
+`--arch` and `--resolution` pick the model; output goes to `embeddings/dinov3_{arch}/`.
+
+#### `cuttle extract-kmeans-video`
+
+Stage 1 of the selection. Splits `--budget` frames across the classifier's classes with
+quotas proportional to `count ** --quota-power` (0.5, square root, by default), then runs
+k-means per video and per class on the DINOv3 features. Day 1 is left out by default
+(`--exclude-days`). Because stage 1 depends on the quotas, changing the budget or settings
+needs `--overwrite` (or a new `--name`).
+
+#### `cuttle extract-kmeans-pooled`
+
+Stage 2. Per class, pools every video's stage-1 centroids, groups them, draws a balanced
+number of centroids per group (`--picks-per-group`) and takes one random frame from each.
+Writes the selection manifest and a summary under `extraction/selections/{name}/`.
+
+#### `cuttle extract-report`
+
+Diagnostics for a selection: per-video allocation, per-class coverage and state ratios against
+a random baseline of the same size, classifier confidence, temporal redundancy, and contact
+sheets of random and most-isolated picks (`eval_sheets/`). Run it before exporting.
+
+#### `cuttle extract-export`
+
+Writes the selected frames as `beast_frames/{video}/img{frame_idx}.png` (only the selected
+frames, no context frames) with a per-video `selected_frames.csv`, and the combined
+`manifests/extract.parquet` (`session_id`, `fish_id`, `frame_idx`, `image_path`) that
+`cuttle train`/`cuttle embed` read.
 
 ## Pipeline: extract embeddings
 

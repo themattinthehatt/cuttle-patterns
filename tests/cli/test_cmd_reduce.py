@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 import yaml
 
+from cuttle_patterns import paths
 from cuttle_patterns.cli.cmd_reduce import cmd_reduce
 
 
@@ -56,6 +57,21 @@ def _make_latents(
 class TestCmdReduce:
     """Test the function cmd_reduce."""
 
+    def test_cmd_reduce_missing_model(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+    ):
+        # Arrange
+        results_dir = tmp_path / 'results'
+        args = _make_args(results_dir=results_dir)
+
+        # Act & Assert
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_reduce(args)
+        assert exc_info.value.code == 1
+        assert 'no model found at' in capsys.readouterr().out
+
     def test_cmd_reduce_missing_latents(
         self,
         tmp_path: Path,
@@ -64,6 +80,7 @@ class TestCmdReduce:
         # Arrange
         results_dir = tmp_path / 'results'
         args = _make_args(results_dir=results_dir)
+        (results_dir / paths.BEAST_MODELS_RELPATH / args.model_name).mkdir(parents=True)
 
         # Act & Assert
         with pytest.raises(SystemExit) as exc_info:

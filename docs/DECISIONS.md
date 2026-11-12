@@ -10,6 +10,52 @@ description may be trimmed in favor of such a pointer.
 
 ---
 
+## Class-quota frame selection (replaces PCA/k-means on pixels)
+
+**Date:** 2026-11-11
+**Status:** decided; implemented as the `cuttle extract-*` stages, not yet run on the full
+dataset
+
+**Decision:** select training frames by (1) per-frame eligibility filters, (2) square-root
+class quotas from a skin-pattern classifier, and (3) per-video-first hierarchical k-means on
+DINOv3 CLS features with one random member per chosen cluster. Whole-video classification and
+feature extraction, so any frame can be revisited without re-running. No context frames.
+See [PHASES.md](PHASES.md) Phase 3 for the mechanism.
+
+**Why:**
+- The old recipe (top half of frames by motion energy, PCA, flat k-means on 32x32 pixels)
+  oversampled the most common state. On a prototype of 8 videos it gave a pool 68% dark
+  aggression against 62% of eligible frames (the motion cut probably favors dark frames).
+- Embedding-space k-means (flat, two-level, and a cross-video variant) improved coverage and
+  rare-state share over random but did not change the classifier class mix: the dominant
+  class is not a compact region in DINOv3 CLS space. Rebalancing needs class-aware quotas.
+- With the 2026-11-07 classifier over all eligible frames (Day 1 excluded), the mix is
+  Leopard 55%, dark aggression 36%, Pale aggression 5%, Yellow-brown 2%, White 1%. Square-root
+  quotas give 41 / 33 / 13 / 8 / 6%, a mild reshaping that stays feasible for every class.
+- A random member per cluster is as good as the nearest to the centroid and far better than
+  the farthest (Vo et al. 2024; mighty-mouse pretraining experiments).
+
+**Eligibility thresholds** (tuned with contact sheets, see `scratch/extraction/README.md`):
+keypoint jump <= 25 px; motion-energy top 1% dropped, judged on the aligned rectangle videos
+(on crop videos motion energy includes whole-body motion and looked harmless, the wrong
+conclusion); < 5% pure-black pixels (deliberately aggressive).
+
+**Considered and rejected:**
+- A confidence floor on classifier labels: low-confidence frames are the interesting,
+  hard-to-classify ones.
+- A per-video cap: with proportional spreading, no video exceeds ~2k frames.
+- Uniform quotas: heavier oversampling of the smallest classes (White would be sampled at 14%
+  of its frames under square-root quotas already).
+- Selecting in the classifier's own feature space: circular, and not tried.
+- Flat or purely cross-video k-means: more expensive and not incremental; per-video-first
+  lets a new video be added by running stage 1 on it alone.
+
+**Caveats:** class labels come from the classifier, so quota quality is bounded by its
+accuracy (Pale aggression is the least confident class, mean confidence 0.65). The selection
+has not been compared by training BEAST on different pools.
+
+---
+
 ## No photometric correction in the pipeline; exclude Day 1 instead
 
 **Date:** 2026-11-11

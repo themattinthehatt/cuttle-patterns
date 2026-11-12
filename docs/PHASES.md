@@ -302,59 +302,46 @@ jets) elsewhere in the dataset.
 
 ## Phase 3: Representative frame extraction — implemented, CLI-exposed
 
-**Goal:** turn aligned videos into a training set of still frames for BEAST.
+**Goal:** turn aligned videos into a training set of still frames for BEAST that is diverse
+and not dominated by the most common skin state.
 
-Sampling strategy per video, implemented in `cuttle_patterns/preprocessing/extract.py` and
-exposed as `cuttle extract`:
+Implemented in `cuttle_patterns/preprocessing/extract/` as separately runnable `cuttle
+extract-*` stages (`cuttle extract` prints the list). Why it replaced the earlier PCA/k-means
+recipe is in the "Class-quota frame selection" entry in [DECISIONS.md](DECISIONS.md).
 
-1. Remove frames that are blank (per `data_dir`'s `_black_frames.txt`), have any
-   tail/neck keypoint likelihood below 0.9 (per `--pose-dir`'s `{video_name}.csv`), or
-   have a rectangle (from `cuttle inscribe`'s `{video_name}.csv` in `--input-dir`) whose
-   long edge is less than 50% of the neck-tail distance (only checked where likelihood
-   is already OK) — `compute_filtered_frame_mask`, with the rectangle check factored out
-   as `compute_small_rectangle_mask`. The blank/likelihood criteria remove many frames
-   where part of the mantle is occluded, or where two cuttlefish are visible, per the
-   labeling strategy behind Phase 2b's pose predictions; the rectangle-size criterion was
-   found via QC on real `cuttle extract` output — see the "Small-rectangle filter" entry
-   in [DECISIONS.md](DECISIONS.md) — and catches a body clearly longer than the box
-   inscribed around it (a sizing failure `cuttle inscribe` itself doesn't yet detect).
-2. From the survivors, keep only frames whose immediate neighbors (n-1, n+1) also
-   survived step 1 — `build_candidate_frame_idxs` — so frame n is only a candidate if
-   both its neighbors are themselves valid frames. Frame 0 and the last frame are never
-   candidates (one neighbor doesn't exist). This matters because BEAST exports each
-   selected anchor frame together with its ±1 neighbors as temporal context (step 3
-   below), so those neighbors need to be valid frames too, not just the anchor itself.
-3. From that candidate set, select diverse anchor frames during movement using BEAST's
-   own approach (motion-energy thresholding, PCA, k-means) —
-   `select_frame_idxs_kmeans_restricted`, a fork of
-   `beast.preprocess.extraction.select_frame_idxs_kmeans` restricted so the
-   motion-energy percentile, PCA, and k-means steps only ever operate over
-   `candidate_idxs` — upstream's only subsetting knob, a contiguous fractional
-   `frame_range`, can't express an arbitrary/non-contiguous allowed-frame set, so a true
-   restriction isn't possible by calling that function directly. `frames_per_video`
-   (`-n`) is a maximum: a video with fewer surviving candidates just uses all of them,
-   with a printed warning, rather than raising.
+1. **Eligibility** (`eligibility.py`, `cuttle extract-eligibility`). A frame is eligible if it
+   is not blank (`data_dir`'s `_black_frames.txt`); all tail/neck keypoints have likelihood
+   >= 0.9; the `cuttle inscribe` rectangle's long edge is >= 50% of the neck-tail distance
+   (`compute_small_rectangle_mask`, found via QC, see "Small-rectangle filter" in DECISIONS);
+   no keypoint moves more than 25 px (crop-frame coordinates) to either neighbor, counting
+   only steps whose endpoints are both high-confidence; its motion energy (BEAST's, on the
+   aligned rectangle video at 32x32) is at or below the video's 99th percentile among frames
+   passing the earlier criteria; and under 5% of its rectangle-frame pixels are pure black.
+   Frame 0 is never eligible (no previous frame for motion energy). There is no neighbor or
+   context-frame requirement. Each criterion is a boolean column in the per-video table.
+2. **Classification** (`classify.py`, `cuttle extract-classify`). The collaborator's two-head
+   resnet18 (pattern head only) labels every frame of the 512x512 crop videos.
+3. **Features** (`dino_cls.py`, `cuttle extract-dino-cls`). DINOv3 ViT-S/16 CLS token of
+   every frame of the aligned rectangle videos (224 px, fp16 autocast), reusing
+   `embedders/dinov3.py`.
+4. **Selection** (`kmeans.py`, `cuttle extract-kmeans-video` then `extract-kmeans-pooled`).
+   Class quotas proportional to the square root of each class's eligible-frame count; per
+   (video, class) spherical k-means with ~3x the video's share of the class quota
+   (stage 1); then per class, k-means on the pooled centroids into groups, an equal number of
+   centroids drawn per group (water-filled), and one random member frame per chosen centroid
+   (stage 2). Day 1 is excluded by default. Results are deterministic for a seed (the
+   centroid update uses a fixed-order segment sum, since GPU `index_add_` is not).
+5. **Report** (`report.py`, `cuttle extract-report`): allocation, within-class coverage and
+   densest/rare-state ratios vs a random baseline, confidence, temporal redundancy, and
+   contact sheets.
+6. **Export** (`export.py`, `cuttle extract-export`): selected frames only, as
+   `beast_frames/{video}/img{frame_idx:08d}.png` plus `selected_frames.csv`, and
+   `manifests/extract.parquet` (`session_id`, `fish_id`, `frame_idx`, `image_path`).
 
-`beast.preprocess.extraction.export_frames` and `beast.video.compute_video_motion_energy`
-are reused unmodified for exporting frames (with ±1 context frames, matching BEAST's own
-output layout: `img{frame_idx}.png` + `selected_frames.csv` per video) and computing
-motion energy, respectively. Keypoint-likelihood filtering itself needed no new logic
-either — it reuses `pose.interpolate_pose`'s existing `is_interpolated` return value
-(already exactly "this frame's likelihood was too low") as the filter mask.
+Outputs live under `results_dir/extraction/` (eligibility tables, stage-1 files, selections),
+plus `classifications/` and `embeddings/`; see `cuttle_patterns/paths.py`.
 
-Unlike `cuttle inscribe`/`cuttle overlay`, where pose predictions are an optional
-refinement with a PCA-based fallback, `--pose-dir` has **no default** and a video with no
-matching pose CSV is skipped (with a printed warning) rather than extracted without
-likelihood filtering — keypoint filtering is a required part of this algorithm, not an
-optional one. A video with no matching rectangle-geometry CSV in `--input-dir` (should
-only happen if `cuttle inscribe` was never run for it) is skipped the same way.
-
-Output: per video, every selected anchor frame plus context under `beast_frames/` and a
-`selected_frames.csv` (anchor frames only); across all videos, a combined frame manifest
-(`session_id`, `fish_id`, `frame_idx`, `image_path`, one row per selected anchor frame)
-under `manifests/` (see `cuttle_patterns/paths.py`).
-
-Tests: `tests/preprocessing/test_extract.py`, `tests/cli/test_cmd_extract.py`.
+Tests: `tests/preprocessing/extract/`, `tests/cli/test_cmd_extract*.py`.
 
 ---
 

@@ -1,9 +1,19 @@
 # Frame selection for BEAST training (scratch plan)
 
+**Status: superseded.** The result of this work is now the `cuttle extract-*` pipeline
+(guide: `cuttle_patterns/preprocessing/extract/README.md`; `cuttle extract` lists the stages; mechanism in `docs/PHASES.md` Phase 3, rationale in the
+"Class-quota frame selection" entry of `docs/DECISIONS.md`). The scripts in this directory
+are the exploratory record: threshold tuning (`jump_contact_sheets.py`,
+`motion_contact_sheets.py`, `black_contact_sheets.py`), the selection-method prototypes
+(`embed_subset.py`, `compare_selection.py`, `cross_video_selection.py`), and the versions of
+eligibility/selection/evaluation that were promoted (`count_eligible.py`,
+`final_eligibility.py`, `select_by_class.py`, `evaluate_selection.py`, `kmeans_utils.py`).
+Intermediate data is under `results/.extraction/`.
+
 Prototype of a revised `cuttle extract`: pick a diverse, less state-biased pool of frames
 to use as `beast_frames`, on which the different extractors/backbones are then compared.
 Orthogonal to the photometry work in `scratch/photometry/`. Once the settings are chosen,
-the logic moves into `cuttle_patterns/preprocessing/extract.py` and the CLI (see
+the logic moved into `cuttle_patterns/preprocessing/extract/` and the CLI (see
 "Promotion to the CLI" below).
 
 Design reference: `/media/mattw/poseinterface/mighty-mouse/docs/pretrain_frame_selection.md`
@@ -185,6 +195,20 @@ rectangle fragments, heavy blur), so the motion-energy gate is worth reconsideri
    each; rows are jump-size bins (>50, 40-50, 30-40, 20-30, 10-20 px). Result: threshold
    fixed at 25 px.
 2. Motion-energy contact sheets: gate dropped (above).
+
+## Class-quota selection (current plan)
+
+Eligibility criteria 1-6, day 1 excluded (132 videos, 4.72M frames). Classifier: 2026-11-07
+two-head model, pattern head only, on 512x512 crops (`results/classifications/
+2026-11-07_classifier_model/`); DINOv3-S CLS on rectangles, every frame
+(`results/embeddings/dinov3_vits16/`). Square-root class quotas (no confidence floor, no
+per-video cap), then per class: stage 1 = per-video spherical k-means (~3x the video's
+share of the class quota), stage 2 = k-means on pooled centroids into groups, equal draws
+per group, one random member per chosen centroid. Scripts: `final_eligibility.py`
+(`results/.extraction/eligibility_final/`), `select_by_class.py`, `evaluate_selection.py`
+(per-video allocation, within-class coverage and state ratios vs a random baseline, confidence,
+temporal redundancy, contact sheets; writes `report.md`/`report.json`/`eval_sheets/` next to
+the manifest).
 
 ## Planned files (all under `scratch/extraction/`)
 

@@ -37,6 +37,27 @@ def assign(x: torch.Tensor, centroids: torch.Tensor, chunk: int = 65536) -> torc
     return torch.cat(out)
 
 
+def segment_sums(x: torch.Tensor, labels: torch.Tensor, counts: torch.Tensor) -> torch.Tensor:
+    """Sum rows of `x` per label in a fixed order (deterministic, unlike `index_add_` on GPU).
+
+    Sorts rows by label and differences a float64 cumulative sum at the segment boundaries.
+
+    Args:
+        x: (n, d) tensor.
+        labels: (n,) long tensor of cluster ids.
+        counts: (k,) number of rows per cluster (`bincount(labels, minlength=k)`).
+
+    Returns:
+        (k, d) float32 tensor of per-cluster sums (zeros for empty clusters).
+    """
+    order = torch.argsort(labels, stable=True)
+    csum = torch.cumsum(x[order].double(), dim=0)
+    csum = torch.cat([torch.zeros(1, x.shape[1], dtype=csum.dtype, device=x.device), csum])
+    ends = torch.cumsum(counts, dim=0)
+    starts = ends - counts
+    return (csum[ends] - csum[starts]).float()
+
+
 def spherical_kmeans(
     x: torch.Tensor,
     k: int,
@@ -60,8 +81,8 @@ def spherical_kmeans(
     centroids = x[torch.randperm(n, generator=gen)[:k].to(x.device)].clone()
     labels = assign(x, centroids)
     for _ in range(n_iter):
-        sums = torch.zeros_like(centroids).index_add_(0, labels, x)
         counts = torch.bincount(labels, minlength=k)
+        sums = segment_sums(x, labels, counts)
         empty = counts == 0
         centroids = normalize(sums)
         if empty.any():
