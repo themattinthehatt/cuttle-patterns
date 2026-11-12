@@ -86,10 +86,6 @@ def cmd_predict(args: argparse.Namespace) -> None:
     )
     model_dir = resolve_model_dir(results_dir, args.model_name)
 
-    if not model_dir.exists():
-        print(f'Error: no model found at {model_dir}; train one first with cuttle train')
-        sys.exit(1)
-
     argv = [
         'beast', 'predict',
         '--model', str(model_dir),

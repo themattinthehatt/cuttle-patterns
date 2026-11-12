@@ -220,7 +220,7 @@ def cmd_embed(args: argparse.Namespace) -> None:
 
     embeddings, meta = run_embed(embedder, frame_paths, batch_size=batch_size)
 
-    model_dir = resolve_model_dir(results_dir, model_name)
+    model_dir = resolve_model_dir(results_dir, model_name, must_exist=False)
     latents_dir = write_embedder_output(embeddings, meta, embedder, model_dir, predictions_name)
     print(
         f'wrote {len(meta)} embeddings ({embedder.dim}-d) to {latents_dir}\n'

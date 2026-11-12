@@ -80,14 +80,22 @@ def resolve_dirs(args: argparse.Namespace) -> tuple[Path, Path]:
     return data_dir, results_dir
 
 
-def resolve_model_dir(results_dir: Path, model_name: str) -> Path:
-    """Directory of a named BEAST model; it may not exist yet.
+def resolve_model_dir(results_dir: Path, model_name: str, must_exist: bool = True) -> Path:
+    """Directory of a named BEAST model.
+
+    Prints an error and exits with status 1 if `must_exist` and the directory is missing.
 
     Args:
         results_dir: results directory.
-        model_name: name the model was trained under.
+        model_name: name of the model.
+        must_exist: whether the model directory must already exist. Commands that create the
+            model directory (`train`, `embed`) pass False.
 
     Returns:
         `results_dir/{BEAST_MODELS_RELPATH}/{model_name}`.
     """
-    return results_dir / paths.BEAST_MODELS_RELPATH / model_name
+    model_dir = results_dir / paths.BEAST_MODELS_RELPATH / model_name
+    if must_exist and not model_dir.is_dir():
+        print(f'Error: no model found at {model_dir}')
+        sys.exit(1)
+    return model_dir

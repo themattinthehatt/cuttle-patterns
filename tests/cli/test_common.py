@@ -41,5 +41,19 @@ class TestResolveModelDir:
     """Test the function resolve_model_dir."""
 
     def test_resolve_model_dir_joins_models_path_and_name(self):
-        out = resolve_model_dir(Path('/r'), 'm1')
+        out = resolve_model_dir(Path('/r'), 'm1', must_exist=False)
         assert out == Path('/r') / paths.BEAST_MODELS_RELPATH / 'm1'
+
+    def test_resolve_model_dir_missing_exits(self, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            resolve_model_dir(tmp_path, 'm1')
+        assert exc_info.value.code == 1
+        assert 'no model found' in capsys.readouterr().out
+
+    def test_resolve_model_dir_missing_allowed(self, tmp_path):
+        out = resolve_model_dir(tmp_path, 'm1', must_exist=False)
+        assert out == tmp_path / paths.BEAST_MODELS_RELPATH / 'm1'
+
+    def test_resolve_model_dir_existing_returned(self, tmp_path):
+        (tmp_path / paths.BEAST_MODELS_RELPATH / 'm1').mkdir(parents=True)
+        assert resolve_model_dir(tmp_path, 'm1').name == 'm1'

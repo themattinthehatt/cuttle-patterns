@@ -82,7 +82,7 @@ def cmd_train(args: argparse.Namespace) -> None:
     input_dir = (
         args.input_dir if args.input_dir is not None else results_dir / paths.BEAST_FRAMES_RELPATH
     )
-    model_dir = resolve_model_dir(results_dir, args.model_name)
+    model_dir = resolve_model_dir(results_dir, args.model_name, must_exist=False)
 
     if model_dir.exists() and any(model_dir.iterdir()):
         print(
