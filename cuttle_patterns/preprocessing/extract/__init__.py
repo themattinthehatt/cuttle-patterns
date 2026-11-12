@@ -10,7 +10,8 @@ Run `cuttle extract` for the list of stages. In order:
 5. `report` (`cuttle extract-report`): diagnostics for a selection.
 6. `export` (`cuttle extract-export`): write the selected frames as PNGs for BEAST.
 
-`common` holds helpers shared by the stages.
+`common` holds helpers shared by the stages. `README.md` in this directory is the working guide
+(running order, gotchas, what to check, what is not validated).
 """
 
 from cuttle_patterns.preprocessing.extract.eligibility import (

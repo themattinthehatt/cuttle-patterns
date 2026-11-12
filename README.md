@@ -20,6 +20,7 @@ docs/
     ├── eval_plan.md                         # historical eval-harness design
     └── msps_vae.md                          # MSPS-VAE model/sampler/config reference
 cuttle_patterns/eval/README.md               # eval harness how-to-run (current scope, metrics)
+cuttle_patterns/preprocessing/extract/README.md  # frame selection (`cuttle extract-*`) guide
 cuttle_patterns/paths.py                     # results_dir tree (module docstring)
 ```
 
@@ -146,7 +147,8 @@ alone rather than re-encoding it.
 Selects the still frames BEAST trains on from the aligned crop videos (under `rectangles/`),
 as a sequence of separately runnable, resumable stages. `cuttle extract` itself only prints
 the stage list; run them in order (`cuttle <stage> --help` for options and defaults,
-`cuttle_patterns/paths.py` for exact output paths):
+`cuttle_patterns/paths.py` for exact output paths; the working guide, with gotchas and what to
+check, is `cuttle_patterns/preprocessing/extract/README.md`):
 
 ```bash
 cuttle extract-eligibility --pose-dir /path/to/pose/predictions

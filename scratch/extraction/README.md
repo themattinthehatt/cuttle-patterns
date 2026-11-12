@@ -1,7 +1,7 @@
 # Frame selection for BEAST training (scratch plan)
 
 **Status: superseded.** The result of this work is now the `cuttle extract-*` pipeline
-(`cuttle extract` lists the stages; mechanism in `docs/PHASES.md` Phase 3, rationale in the
+(guide: `cuttle_patterns/preprocessing/extract/README.md`; `cuttle extract` lists the stages; mechanism in `docs/PHASES.md` Phase 3, rationale in the
 "Class-quota frame selection" entry of `docs/DECISIONS.md`). The scripts in this directory
 are the exploratory record: threshold tuning (`jump_contact_sheets.py`,
 `motion_contact_sheets.py`, `black_contact_sheets.py`), the selection-method prototypes
