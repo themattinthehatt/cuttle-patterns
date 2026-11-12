@@ -140,17 +140,42 @@ cosine distance, mean/p95/p99.9) and densest/rarest-state ratios against a rando
 the same size, mean classifier confidence, temporal redundancy, and contact sheets. Before
 exporting, look at:
 
-- [ ] class mix equals the intended quotas (summary.json);
-- [ ] per-video allocation: no video far outside the ~380-2,070 range, none zero;
+- [ ] class mix equals the intended quotas (`summary.json`; they are met exactly, so a
+  mismatch means a bug);
+- [ ] per-video allocation: every video contributes and none is far outside the expected range
+  (first run: 450-2,048, median 967);
 - [ ] contact sheets for the **isolated picks** of each class, especially White and
   Yellow-brown: embeddings cannot tell junk from a rare pattern, so this is where blur,
   black wedges and warped rectangles would show up;
-- [ ] coverage no worse than the random baseline, rare-state ratio above 1;
-- [ ] temporal redundancy: few picks within a second of each other.
+- [ ] coverage (p99.9) no worse than the random baseline and the densest-state ratio below 1;
+- [ ] temporal redundancy (`near10`, share of picks with another pick from the same video
+  within 10 frames) no higher than the random baseline. It is high for the rare classes in
+  both columns, so only the selected-vs-random difference means anything.
 
-This checklist is not yet calibrated: nobody has run the full pipeline and inspected the
-output. After the first real run, replace it with what was actually found (what junk looked
-like, which numbers were informative).
+Read the isolated sheets as a worst case, not a junk rate: they show the least typical frames,
+so they say where junk hides, not how much of the pool it is. To estimate a junk rate, look at
+the `*_random.jpg` sheets.
+
+### First run (`sqrt-132k`: 132 videos, budget 132,000, defaults, Day 1 excluded)
+
+- Quotas met exactly; per video 450-2,048 (median 967), all 132 videos contribute.
+- Coverage p99.9 is better than random in every class but only slightly (Dark 0.255 vs 0.275,
+  White 0.251 vs 0.283, Yellow-brown 0.299 vs 0.311); the densest state is thinned to 0.73-0.93
+  of random's share.
+- The rare-state ratio beats random only for Dark (1.22 vs 0.99); the other classes are at
+  random (0.98-1.07). Temporal redundancy is about the same as random.
+- Mean confidence of the picks matches the eligible frames (slightly more low-confidence Dark
+  frames: 0.12 vs 0.10). The class mix is set by the quotas, and the diversity gain within each
+  class is modest, as in the 8-video prototype.
+- `White_random.jpg` is clean white pattern. `White_isolated.jpg` is mostly junk: motion blur,
+  out-of-focus close-ups, fish edge, a few jagged black wedges from rectangle alignment
+  (confidence mostly 0.3-0.5). `Yellow-brown_isolated.jpg` is mixed: valid orange-brown
+  patterns plus close-ups of fins and eyes. `Pale_aggression_isolated.jpg` is mostly
+  legitimate varied texture. Dark and Leopard isolated sheets were not reviewed.
+- Decision: export as is and compare by training BEAST on the pool. Not changed because of
+  the report: the confidence rule (no floor, by choice). If the junk matters after training,
+  the candidates are a stricter motion-energy gate for blur and the black-fraction gate for
+  wedges; estimate the junk rate from the random sheets first.
 
 ## What is not validated
 
