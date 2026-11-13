@@ -63,7 +63,23 @@ python skills/eval-embedders/print_scoreboard.py
 Prints every row in `metrics.json` as one compact markdown table (also in
 `results/eval/scoreboard.md`, with std columns).
 
-## 5. Reading it
+## 5. Offer downstream tasks
+
+After the embeds finish (frozen or trained), ask the user whether to also run these on each
+model, and run only what they accept (all three are the "yes" default):
+
+- `cuttle reduce --model-name NAME` (default settings; UMAP)
+- `cuttle cluster --model-name NAME --n-clusters K` for **K = 16 and 32** (one command per K)
+- `cuttle clusterview --model-name NAME --cluster-run kmeans_kK` for **each** `cuttle cluster`
+  run (`kmeans_k16`, `kmeans_k32`)
+
+Run them per model, in that order (`clusterview` needs the cluster parquets), logging to the
+same `results/eval/logs/` dir. They read the model's latents, so the model must have
+embeddings for the current pool (section 1). `cuttle reduce` on 132k frames can take
+several minutes, so run it detached. Report where the
+outputs landed (under `beast_models/NAME/reduce/` and `clusters/`).
+
+## 6. Reading it
 
 - Want high: AMI class (sanity floor, not a goal), effective videos per cluster, cross-video
   kNN, linear probe. Want low: AMI video|class.
