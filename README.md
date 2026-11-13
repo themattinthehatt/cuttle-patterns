@@ -8,7 +8,7 @@ embedding via BEAST, and interactive tools for exploring the resulting pattern c
 
 ```
 README.md                                    # setup + full `cuttle` CLI reference
-CLAUDE.md                                    # development guidelines for Claude Code
+AGENTS.md                                    # development guidelines for coding agents (CLAUDE.md imports it)
 docs/
 ├── PHASES.md                                # living design/status narrative, by phase
 ├── DECISIONS.md                             # append-only decision log (the why)
