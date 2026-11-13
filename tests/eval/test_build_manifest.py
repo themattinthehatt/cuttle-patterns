@@ -82,3 +82,40 @@ class TestBuildEvalManifest:
         # Act / Assert
         with pytest.raises(ValueError, match='no matching classifier prediction'):
             build_eval_manifest(tmp_path, 'clf')
+
+    def test_joins_per_video_directory_layout(self, tmp_path):
+        # Arrange
+        _write_extract(tmp_path, {
+            'session_id': ['Day1_Tank1', 'Day1_Tank1'],
+            'fish_id': ['Cuttle1_Resident', 'Cuttle1_Resident'],
+            'frame_idx': [7, 9],
+            'image_path': ['/x/img7.png', '/x/img9.png'],
+        })
+        clf_dir = tmp_path / 'classifications' / 'clf'
+        clf_dir.mkdir(parents=True)
+        pd.DataFrame({
+            'frame_idx': [7, 8, 9],
+            'predicted_pattern': ['Leopard', 'White', 'Pale_aggression'],
+            'confidence': [0.9, 0.8, 0.7],
+        }).to_parquet(clf_dir / 'Day1_Tank1_Cuttle1_Resident_Crop.parquet')
+
+        # Act
+        manifest = build_eval_manifest(tmp_path, 'clf')
+
+        # Assert
+        assert list(manifest['predicted_pattern']) == ['Leopard', 'Pale_aggression']
+        assert list(manifest['frame_number']) == [7, 9]
+
+    def test_raises_on_missing_video_in_directory_layout(self, tmp_path):
+        # Arrange
+        _write_extract(tmp_path, {
+            'session_id': ['Day1_Tank1'],
+            'fish_id': ['Cuttle1_Resident'],
+            'frame_idx': [7],
+            'image_path': ['/x/img7.png'],
+        })
+        (tmp_path / 'classifications' / 'clf').mkdir(parents=True)
+
+        # Act / Assert
+        with pytest.raises(FileNotFoundError):
+            build_eval_manifest(tmp_path, 'clf')

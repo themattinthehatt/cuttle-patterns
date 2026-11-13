@@ -13,10 +13,12 @@ how-to-run.
 ## Current scope (v1 / "core")
 
 Only what's needed to answer the two questions above, for embeddings already produced
-by the existing `cuttle train`/`cuttle predict` pipeline:
+by `cuttle train`/`cuttle predict` or `cuttle embed` (frozen DINOv3/VGG-19). The
+[`eval-embedders` skill](../../skills/eval-embedders/SKILL.md) is the runbook for embedding
+a pool and scoring many embedders:
 
-- `build_manifest.py` — joins classifier predictions onto the existing
-  `cuttle extract` frame set.
+- `build_manifest.py` — joins classifier predictions onto the exported
+  frame set (`cuttle extract-export`'s `manifests/extract.parquet`).
 - `load_embeddings.py` — loads a trained model's latents (optionally splitting an
   MSPS-VAE checkpoint into `z_u`/`z_b`/`z_all`) and aligns them to the manifest.
 - `clustering.py` — the shared L2-normalize + PCA + k-means preprocessing every
@@ -26,9 +28,8 @@ by the existing `cuttle train`/`cuttle predict` pipeline:
 - `run_core.py` — a ready-made script wiring the above up against real
   `results_dir` models.
 
-**Deliberately not built yet:** scoring a pretrained backbone like DINOv2 (would need
-new extraction code, not just loading existing latents), and the qualitative outputs
-(cluster grids, fixed-query neighbor grids). Both are real v2 work, not forgotten —
+**Deliberately not built yet:** the qualitative outputs (cluster grids, fixed-query
+neighbor grids). Real v2 work, not forgotten —
 see `../../docs/implementation_notes/eval_plan.md`'s "Deferred to v2" / "Out of scope for now" notes.
 
 ## Metrics
@@ -118,8 +119,9 @@ python -m cuttle_patterns.eval.run_core \
 `cuttle_patterns.eval` is part of the normal package install (`pip install -e ".[dev]"`),
 so this resolves from anywhere, not just the repo root.
 
-- `--classifier-name` is the stem of `results_dir/classifications/{name}.parquet`
-  (`scripts/classify_skin_pattern.py`'s output) to join as the pattern-type proxy.
+- `--classifier-name` names the classifications to join as the pattern-type proxy: the
+  directory `results_dir/classifications/{name}` of per-video parquets
+  (`cuttle extract-classify`), or a single `{name}.parquet`.
 - `--model-name {model_name}:{kind}` is repeatable; `kind` is `ae` for a
   single-subspace model (one scoreboard row, id = `model_name`) or `msps_vae` to
   expand into three rows (`{model_name}_z_u`, `{model_name}_z_b`,

@@ -1,11 +1,11 @@
-"""Load already-trained ("Tier A") embeddings and align them to the eval manifest.
+"""Load precomputed embeddings and align them to the eval manifest.
 
-Every embedder this v1 harness scores was already trained through the existing BEAST
-pipeline (Phase 4) — nothing here re-runs inference. It reuses
+Every embedder this harness scores was already embedded, either trained through the BEAST
+pipeline (Phase 4) or frozen via `cuttle embed` (Phase 4b) — nothing here re-runs
+inference. It reuses
 `cuttle_patterns.latents.load_latents`/`split_latent_spaces` to read the per-frame
-`.npy` latents `cuttle predict --save-latents` wrote, then restricts/reorders them to
-match the eval manifest's frame set. A second, pretrained-backbone tier ("Tier B") is
-deferred — see `docs/eval_plan.md`.
+`.npy` latents `cuttle predict --save-latents` wrote (or the combined `embeddings.npy`
+from `cuttle embed`), then restricts/reorders them to match the eval manifest's frame set.
 """
 
 from dataclasses import dataclass
