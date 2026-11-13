@@ -236,3 +236,10 @@ Every existing stage (e.g. `cuttle cluster`/`cluster.py`, `cuttle clusterview`/
   every script.
 - Add a short `scratch/<topic>/README.md`: the question, the result, and a pointer to the
   decision entry.
+
+## Skills
+
+- Agent skills live in `skills/<name>/` (a `SKILL.md` plus any helper scripts), not in
+  `.claude/`. Each is exposed to Claude Code by a relative symlink
+  `.claude/skills/<name> -> ../../skills/<name>`; add the symlink when adding a skill.
+  Stage `.claude/skills` only, since the rest of `.claude/` is personal.

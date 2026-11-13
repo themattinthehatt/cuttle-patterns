@@ -1,7 +1,7 @@
 """Build the eval manifest: join classifier predictions onto the existing frame set.
 
-The eval frame set is not a new sample — it's the same one `cuttle extract` already
-produced (`results_dir/manifests/extract.parquet`). This module only attaches the
+The eval frame set is not a new sample — it's the frame set `cuttle extract-export`
+already exported (`results_dir/manifests/extract.parquet`). This module only attaches the
 classifier's predicted pattern label to each of those frames, since the eval metrics
 need a pattern-type proxy alongside each frame's video identity.
 """

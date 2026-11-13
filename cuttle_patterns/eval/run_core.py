@@ -73,7 +73,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         '--classifier-name', required=True,
-        help='stem of results_dir/classifications/{name}.parquet to join as the pattern proxy.',
+        help='classifications to join as the pattern proxy: results_dir/classifications/{name}/ '
+        '(per-video parquets) or {name}.parquet.',
     )
     parser.add_argument(
         '--model-name', action='append', required=True, dest='model_args',
